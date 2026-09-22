@@ -1,0 +1,18 @@
+.DS_Store
+
+# Identifiants et artefacts du cluster local — jamais versionnés.
+ansible/local/kubeconfig
+
+# Généré par ansible/local/inventory.sh à chaque création de VM.
+ansible/inventory/local.yml
+
+# Sorties d'audit
+**/prowler-out/
+
+# Doublon du dossier sample-app-master/ extrait.
+sample-app-master.zip
+
+# L'application à porter appartient au dépôt kube-app (README §3), et son
+# docker-compose.yaml livré contient APP_KEY et les mots de passe en clair
+# — README §1.5 : « à régénérer et à ne jamais recommiter ».
+sample-app-master/
