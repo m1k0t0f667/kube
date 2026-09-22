@@ -1,0 +1,53 @@
+---
+# Pré-vol. Doit passer intégralement avant site.yml.
+# Vérifie les contraintes relevées dans docs/contraintes-et-outillage.md.
+- name: Pré-vol des trois nœuds
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    - name: Le nœud répond
+      ansible.builtin.ping:
+
+    - name: Architecture arm64 (C4 — toute image doit être arm64)
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] == "aarch64"
+        fail_msg: "{{ inventory_hostname }} n'est pas en arm64 : {{ ansible_facts['architecture'] }}"
+
+    - name: Mémoire disponible conforme au budget
+      ansible.builtin.assert:
+        that: ansible_facts['memtotal_mb'] > (min_node_ram_mb | default(3500))
+        fail_msg: "RAM insuffisante sur {{ inventory_hostname }} : {{ ansible_facts['memtotal_mb'] }} Mo"
+
+    - name: EFS monté (prérequis du stockage persistant)
+      ansible.builtin.command: findmnt --noheadings --output SOURCE,FSTYPE {{ efs_mount_point }}
+      register: efs_mount
+      changed_when: false
+      failed_when: efs_mount.rc != 0
+
+    - name: Sortie Internet (pas de NAT — dépend de l'IP publique auto-assignée)
+      ansible.builtin.uri:
+        url: https://registry.k8s.io/
+        method: HEAD
+        timeout: 10
+      register: egress
+      retries: 3
+      delay: 5
+      until: egress is succeeded
+
+    - name: Le CIDR des pods ne chevauche pas le VPC
+      ansible.builtin.assert:
+        that: not (pod_network_cidr | ansible.utils.network_in_network(vpc_cidr))
+        fail_msg: "pod_network_cidr {{ pod_network_cidr }} chevauche {{ vpc_cidr }}"
+      run_once: true
+      delegate_to: localhost
+
+    - name: Récapitulatif
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} ·
+          {{ ansible_facts['architecture'] }} ·
+          {{ ansible_facts['memtotal_mb'] }} Mo ·
+          EFS {{ efs_mount.stdout | trim }} ·
+          egress {{ egress.status }}

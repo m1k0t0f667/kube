@@ -1,0 +1,7 @@
+---
+# ansible-core ne contient aucune de ces collections.
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.posix        # mount, sysctl
+  - name: community.general    # modprobe
+  - name: ansible.utils        # network_in_network (pré-vol CIDR)

@@ -1,0 +1,59 @@
+# Deux chaînes de certification, deux périmètres — cf. README §2.1 #5b.
+#
+#   internal-ca      tout ce qui ne sort jamais du cluster (TLS MySQL, webhooks,
+#                    scraping Prometheus). Aucun quota, survit aux reconstructions.
+#   letsencrypt-*    tout ce qui est exposé publiquement. Le navigateur doit faire
+#                    confiance, et l'apiserver doit valider l'issuer OIDC de dex.
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+# CA racine interne, signée par l'issuer auto-signé ci-dessus.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: internal-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: kube-internal-ca
+  secretName: internal-ca-key-pair
+  duration: 43800h      # 5 ans
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: internal-ca
+spec:
+  ca:
+    secretName: internal-ca-key-pair
+{% if acme_enabled | default(false) | bool %}
+---
+# Challenge HTTP-01 : Let's Encrypt frappe le port 80, d'où l'Ingress en hostPort.
+# Rester sur staging pendant tout le développement — le quota prod est de
+# 50 certificats par domaine et par semaine, vite épuisé par les reconstructions.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: {{ acme_server }}
+    email: {{ acme_email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+{% endif %}

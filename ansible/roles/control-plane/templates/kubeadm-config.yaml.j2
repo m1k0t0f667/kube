@@ -1,0 +1,38 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+# kube-proxy n'est pas installé : Cilium le remplace en eBPF, ce qui est requis
+# pour que hostPort fonctionne (voir roles/cni/templates/cilium-values.yaml.j2).
+skipPhases:
+  - addon/kube-proxy
+localAPIEndpoint:
+  advertiseAddress: {{ node_ip }}
+  bindPort: 6443
+nodeRegistration:
+  # Nom déterministe et identique en local et sur AWS : sans cela le nœud prend
+  # le hostname de la machine (lima-node-1, ip-10-0-0-80…), ce qui rend les
+  # podAntiAffinity sur kubernetes.io/hostname illisibles d'un environnement à l'autre.
+  name: {{ inventory_hostname }}
+  criSocket: unix:///run/containerd/containerd.sock
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: v{{ k8s_version }}
+# Une seule AZ, pas de load balancer autorisé, EIP non déplaçable :
+# control-plane unique assumé. Voir docs/contraintes-et-outillage.md §7.
+controlPlaneEndpoint: {{ control_plane_endpoint }}
+networking:
+  podSubnet: {{ pod_network_cidr }}      # ne doit pas chevaucher le VPC 10.0.0.0/24
+  serviceSubnet: {{ service_cidr }}
+apiServer:
+  certSANs:
+    - {{ node_ip }}
+{% if public_ip is defined %}    - {{ public_ip }}
+    - {{ ingress_domain }}
+{% endif %}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+imageGCHighThresholdPercent: 75        # 30 Go non extensibles (C6)
+imageGCLowThresholdPercent: 60

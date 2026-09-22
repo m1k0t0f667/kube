@@ -1,0 +1,54 @@
+---
+# À lancer après chaque extinction nocturne (risque #3 du README).
+# Le cluster doit repartir seul ; ce playbook le constate et répare le minimum.
+- name: Reprise après extinction
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Services socle actifs
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - containerd
+        - kubelet
+
+    - name: EFS remonté (le fstab le fait, on vérifie)
+      ansible.builtin.command: findmnt --noheadings {{ efs_mount_point }}
+      register: efs
+      changed_when: false
+      failed_when: false
+
+    - name: Remonter l'EFS s'il manque
+      ansible.builtin.command: mount -a -t efs
+      when: efs.rc != 0
+
+- name: État du cluster
+  hosts: control_plane
+  become: true
+
+  tasks:
+    - name: Les trois nœuds sont Ready
+      ansible.builtin.command: kubectl get nodes --no-headers
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: nodes
+      changed_when: false
+      retries: 10
+      delay: 15
+      until: nodes.stdout_lines | select('search', ' Ready ') | list | length == 3
+
+    - name: Pods non sains
+      ansible.builtin.shell: >-
+        kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded
+        --no-headers || true
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: unhealthy
+      changed_when: false
+
+    - name: Rapport
+      ansible.builtin.debug:
+        msg: "{{ unhealthy.stdout_lines | default(['tous les pods sont sains']) }}"

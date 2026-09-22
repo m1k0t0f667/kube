@@ -1,0 +1,44 @@
+---
+# Point d'entrée HTTP/HTTPS du cluster. Joué sur le control-plane.
+
+- name: Marquer le nœud d'entrée
+  ansible.builtin.command: >-
+    kubectl label node {{ inventory_hostname }}
+    node-role.kubernetes.io/ingress=true --overwrite
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: labelled
+  changed_when: "'not labeled' not in labelled.stdout"
+
+- name: Valeurs ingress-nginx
+  ansible.builtin.template:
+    src: values.yaml.j2
+    dest: /etc/kubernetes/ingress-nginx-values.yaml
+    mode: "0644"
+
+- name: Dépôt Helm ingress-nginx
+  kubernetes.core.helm_repository:
+    name: ingress-nginx
+    repo_url: https://kubernetes.github.io/ingress-nginx
+
+- name: Déployer ingress-nginx
+  kubernetes.core.helm:
+    name: ingress-nginx
+    chart_ref: ingress-nginx/ingress-nginx
+    chart_version: "{{ ingress_nginx_version }}"
+    release_namespace: ingress-nginx
+    create_namespace: true
+    values_files:
+      - /etc/kubernetes/ingress-nginx-values.yaml
+    kubeconfig: /etc/kubernetes/admin.conf
+    wait: true
+    wait_timeout: 10m
+
+- name: Le port 80 répond sur le nœud d'entrée
+  ansible.builtin.uri:
+    url: "http://{{ node_ip }}/"
+    status_code: [404]      # 404 par défaut tant qu'aucun Ingress n'est défini
+  register: probe
+  retries: 12
+  delay: 5
+  until: probe is succeeded

@@ -1,0 +1,104 @@
+---
+# Initialise le control-plane unique.
+# Rappel : un seul membre etcd, pas de quorum — choix imposé par les droits AWS
+# (aucun load balancer, EIP non déplaçable). Voir docs/contraintes-et-outillage.md §7.
+
+# reset.yml supprime /etc/kubernetes : le recréer, sinon la reconstruction
+# échoue au premier template. Bug trouvé par le cycle teardown/rebuild local.
+- name: Répertoire de configuration Kubernetes
+  ansible.builtin.file:
+    path: /etc/kubernetes
+    state: directory
+    mode: "0755"
+
+- name: Configuration kubeadm
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    mode: "0600"
+
+- name: Cluster déjà initialisé ?
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+
+- name: kubeadm init
+  ansible.builtin.command:
+    cmd: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml
+    creates: /etc/kubernetes/admin.conf
+
+# Le home ne se déduit pas du nom d'utilisateur : sur les VM Lima, `hadrien`
+# a pour home /home/hadrien.guest. On le lit.
+- name: Home de l'utilisateur
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+
+- name: Mémoriser le home
+  ansible.builtin.set_fact:
+    user_home: "{{ ansible_facts.getent_passwd[ansible_user][4] }}"
+
+- name: Répertoire .kube de l'utilisateur
+  ansible.builtin.file:
+    path: "{{ user_home }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0700"
+
+- name: kubeconfig utilisateur
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ user_home }}/.kube/config"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+
+# Filet de sécurité du risque #1 (démarrage circulaire de l'OIDC) : ce kubeconfig
+# hors OIDC est stocké sur EFS, qui survit à la destruction du cluster.
+- name: Sauvegarder le kubeconfig admin sur le stockage partagé
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ efs_mount_point }}/bootstrap/admin.conf"
+    remote_src: true
+    mode: "0600"
+
+# Un token est créé à chaque exécution et expire en 24 h ; l'opération est
+# volontairement déclarée non-changeante pour ne pas polluer le test d'idempotence.
+- name: Commande de jonction pour les workers
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: join_command
+  changed_when: false
+
+- name: Attendre que l'API server réponde
+  ansible.builtin.command: kubectl get --raw /readyz
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: readyz
+  until: readyz.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+# Le cluster n'a que 3 nœuds et le README §3 décrit node-1 comme control-plane
+# ET worker. Sans lever ce taint : l'Ingress NGINX en hostPort ne peut pas s'y
+# planifier, et l'exigence #19 (3 replicas en anti-affinité stricte) est
+# infaisable puisque seuls 2 nœuds seraient schedulables.
+# Les charges lourdes (Prometheus, Loki, Harbor, MySQL) restent dirigées vers
+# node-2 et node-3 par affinité, pas par ce taint.
+- name: Rendre le control-plane schedulable
+  ansible.builtin.command: >-
+    kubectl taint nodes {{ inventory_hostname }}
+    node-role.kubernetes.io/control-plane:NoSchedule-
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: untaint
+  changed_when: "'untainted' in untaint.stdout"
+  failed_when: untaint.rc != 0 and 'not found' not in untaint.stderr
+
+# TODO — patch OIDC de l'apiserver (exigence #13).
+#   À faire SEULEMENT après que dex réponde en TLS valide, sinon l'apiserver ne
+#   redémarre plus. Séquence imposée par le risque #1 du README.
+#   Flags : --oidc-issuer-url, --oidc-client-id, --oidc-username-claim,
+#           --oidc-groups-claim dans /etc/kubernetes/manifests/kube-apiserver.yaml

@@ -1,0 +1,63 @@
+---
+# Socle commun : prérequis kubeadm sur Amazon Linux 2023 arm64.
+
+- name: Swap désactivé (exigence kubelet)
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | default(0) > 0
+  changed_when: true
+
+- name: Swap retiré du fstab
+  ansible.posix.mount:
+    path: swap
+    fstype: swap
+    state: absent
+
+- name: Modules noyau requis par le CNI
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Paramètres sysctl réseau
+  ansible.posix.sysctl:
+    name: "{{ item.k }}"
+    value: "{{ item.v }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: true
+  loop:
+    - { k: net.bridge.bridge-nf-call-iptables, v: "1" }
+    - { k: net.bridge.bridge-nf-call-ip6tables, v: "1" }
+    - { k: net.ipv4.ip_forward, v: "1" }
+
+- name: Dépôt Kubernetes
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes {{ k8s_minor }}
+    baseurl: https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/rpm/
+    gpgcheck: true
+    gpgkey: https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/rpm/repodata/repomd.xml.key
+    exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+- name: Outils kubeadm
+  ansible.builtin.dnf:
+    name:
+      - "kubelet-{{ k8s_version }}"
+      - "kubeadm-{{ k8s_version }}"
+      - "kubectl-{{ k8s_version }}"
+    state: present
+    disable_excludes: kubernetes
+
+- name: kubelet activé (survit à l'extinction nocturne — risque #3)
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+    state: started
+
+# Note : les seuils de garbage collection d'images (contrainte C6, 30 Go non
+# extensibles) sont définis dans la KubeletConfiguration de kubeadm-config.yaml.j2.
+# Ne pas les remettre ici : le kubelet lit /var/lib/kubelet/config.yaml, généré
+# par kubeadm — un fichier déposé dans /etc/kubernetes serait sans effet, et
+# écrire dans ce répertoire casse la reconstruction après reset.yml.

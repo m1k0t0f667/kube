@@ -1,0 +1,13 @@
+---
+- name: Déjà membre du cluster ?
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Rejoindre le cluster
+  ansible.builtin.command:
+    cmd: >-
+      {{ hostvars[groups['control_plane'][0]].join_command.stdout }}
+      --node-name {{ inventory_hostname }}
+    creates: /etc/kubernetes/kubelet.conf
+  when: not kubelet_conf.stat.exists

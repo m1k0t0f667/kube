@@ -1,0 +1,58 @@
+---
+# Provisionnement complet du cluster. Exécution depuis node-1 (control node).
+#   tmux new -s kube && ansible-playbook site.yml
+#
+# Ordre imposé par le risque #1 du README (démarrage circulaire de l'OIDC) :
+# le cluster est monté nu ici. L'ingress, cert-manager, Keycloak, dex et le patch
+# OIDC de l'apiserver sont déployés ensuite par ArgoCD, pas par ce playbook.
+
+- name: Socle commun aux trois nœuds
+  hosts: all
+  become: true
+  tags: [socle]
+  roles:
+    - common
+    - containerd
+    - efs
+
+- name: Control plane
+  hosts: control_plane
+  become: true
+  tags: [control-plane]
+  roles:
+    - control-plane
+
+- name: Workers
+  hosts: workers
+  become: true
+  tags: [workers]
+  roles:
+    - worker
+
+- name: Réseau du cluster
+  hosts: control_plane
+  become: true
+  tags: [cni]
+  roles:
+    - cni
+
+- name: Point d'entrée HTTP/HTTPS
+  hosts: control_plane
+  become: true
+  tags: [ingress]
+  roles:
+    - ingress-nginx
+
+- name: PKI
+  hosts: control_plane
+  become: true
+  tags: [pki]
+  roles:
+    - cert-manager
+
+- name: GitOps
+  hosts: control_plane
+  become: true
+  tags: [gitops]
+  roles:
+    - argocd

@@ -1,0 +1,67 @@
+---
+# Installe Cilium. Joué sur le control-plane uniquement : le chart déploie
+# lui-même un DaemonSet sur tous les nœuds.
+
+- name: Helm présent ?
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_bin
+
+# get_url vérifie l'empreinte ; unarchive ne sait pas le faire.
+- name: Télécharger Helm (arm64)
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-arm64.tar.gz"
+    dest: /tmp/helm.tar.gz
+    checksum: "sha256:{{ helm_arm64_sha256 }}"
+    mode: "0644"
+  when: not helm_bin.stat.exists
+
+- name: Extraire Helm
+  ansible.builtin.unarchive:
+    src: /tmp/helm.tar.gz
+    dest: /tmp
+    remote_src: true
+  when: not helm_bin.stat.exists
+
+- name: Installer le binaire Helm
+  ansible.builtin.copy:
+    src: /tmp/linux-arm64/helm
+    dest: /usr/local/bin/helm
+    remote_src: true
+    mode: "0755"
+  when: not helm_bin.stat.exists
+
+- name: Valeurs Cilium
+  ansible.builtin.template:
+    src: cilium-values.yaml.j2
+    dest: /etc/kubernetes/cilium-values.yaml
+    mode: "0644"
+
+- name: Dépôt Helm Cilium
+  kubernetes.core.helm_repository:
+    name: cilium
+    repo_url: https://helm.cilium.io/
+
+- name: Déployer Cilium
+  kubernetes.core.helm:
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "{{ cilium_version }}"
+    release_namespace: kube-system
+    values_files:
+      - /etc/kubernetes/cilium-values.yaml
+    kubeconfig: /etc/kubernetes/admin.conf
+    wait: true
+    wait_timeout: 10m
+
+- name: Attendre que les trois nœuds soient Ready
+  ansible.builtin.command: >-
+    kubectl get nodes --no-headers
+    -o custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: nodes_ready
+  changed_when: false
+  retries: 30
+  delay: 10
+  until: nodes_ready.stdout_lines | select('search', 'Ready') | list | length == groups['all'] | length

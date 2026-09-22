@@ -1,0 +1,82 @@
+---
+# Émulation locale d'Amazon EFS.
+#
+# Sur AWS, le userData monte fs-038bf0f49474a6a1d sur /mnt/efs via /etc/fstab,
+# sur les trois nœuds, en NFSv4 + TLS. Ici on reproduit la même chose avec un
+# export NFS depuis node-1 : même point de montage, même sémantique partagée,
+# donc le rôle `efs` de site.yml s'exécute sans modification.
+#
+# À jouer UNE FOIS après la création des VM, avant site.yml.
+# Ce playbook n'a pas d'équivalent sur AWS : là-bas, l'école fournit l'EFS.
+
+- name: Serveur NFS sur node-1 (tient lieu de mount target EFS)
+  hosts: control_plane
+  become: true
+
+  tasks:
+    - name: Paquets NFS
+      ansible.builtin.dnf:
+        name: nfs-utils
+        state: present
+
+    - name: Répertoire exporté
+      ansible.builtin.file:
+        path: /srv/efs
+        state: directory
+        mode: "0755"
+
+    - name: Export vers le réseau du cluster
+      ansible.builtin.copy:
+        dest: /etc/exports
+        mode: "0644"
+        content: |
+          # `insecure` autorise les ports source non privilégiés, ce qu'Amazon EFS
+          # fait nativement. Sans lui, l'option client `noresvport` — recommandée
+          # par AWS et utilisée à l'identique ici — est rejetée.
+          /srv/efs {{ vpc_cidr }}(rw,sync,insecure,no_subtree_check,no_root_squash)
+      notify: Recharger les exports
+
+    - name: Serveur NFS actif
+      ansible.builtin.systemd:
+        name: nfs-server
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Recharger les exports
+      ansible.builtin.command: exportfs -ra
+
+- name: Montage /mnt/efs sur les trois nœuds
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Client NFS
+      ansible.builtin.dnf:
+        name: nfs-utils
+        state: present
+
+    - name: Point de montage
+      ansible.builtin.file:
+        path: "{{ efs_mount_point }}"
+        state: directory
+        mode: "0755"
+
+    # Sur AWS c'est le userData qui écrit cette ligne. Ici c'est nous,
+    # mais le résultat observé par les rôles est identique.
+    - name: Montage persistant
+      ansible.posix.mount:
+        path: "{{ efs_mount_point }}"
+        src: "{{ hostvars[groups['control_plane'][0]].node_ip }}:/srv/efs"
+        fstype: nfs4
+        opts: "_netdev,hard,noresvport"
+        state: mounted
+
+    - name: Vérification
+      ansible.builtin.command: findmnt --noheadings --output SOURCE,FSTYPE {{ efs_mount_point }}
+      register: check
+      changed_when: false
+
+    - name: Résultat
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} → {{ check.stdout | trim }}"

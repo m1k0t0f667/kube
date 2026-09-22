@@ -1,0 +1,52 @@
+---
+# Amorçage d'ArgoCD. C'est la dernière chose qu'Ansible déploie : ensuite,
+# tout passe par Git via le pattern App-of-Apps.
+
+- name: Dépôt Helm argo
+  kubernetes.core.helm_repository:
+    name: argo
+    repo_url: https://argoproj.github.io/argo-helm
+
+- name: Valeurs ArgoCD
+  ansible.builtin.template:
+    src: values.yaml.j2
+    dest: /etc/kubernetes/argocd-values.yaml
+    mode: "0644"
+
+- name: Déployer ArgoCD
+  kubernetes.core.helm:
+    name: argocd
+    chart_ref: argo/argo-cd
+    chart_version: "{{ argocd_version }}"
+    release_namespace: argocd
+    create_namespace: true
+    values_files:
+      - /etc/kubernetes/argocd-values.yaml
+    kubeconfig: /etc/kubernetes/admin.conf
+    wait: true
+    wait_timeout: 15m
+
+- name: Certificat émis pour l'Ingress
+  ansible.builtin.command: >-
+    kubectl -n argocd wait --for=condition=Ready
+    certificate/argocd-server-tls --timeout=180s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Mot de passe admin initial
+  ansible.builtin.command: >-
+    kubectl -n argocd get secret argocd-initial-admin-secret
+    -o jsonpath={.data.password}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: argocd_pw
+  changed_when: false
+  failed_when: false
+
+- name: Accès
+  ansible.builtin.debug:
+    msg:
+      - "URL      : https://argocd.{{ ingress_domain }}{{ ':8443' if not (acme_enabled | default(false) | bool) else '' }}/"
+      - "login    : admin"
+      - "password : {{ argocd_pw.stdout | b64decode if argocd_pw.stdout else '(secret initial déjà supprimé)' }}"

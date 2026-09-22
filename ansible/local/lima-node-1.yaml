@@ -1,0 +1,17 @@
+# node-1 — nœud d'entrée du cluster local.
+# Hérite du gabarit commun ; node-2 et node-3 utilisent lima-node.yaml tel quel.
+#
+# Seul le 6443 est redirigé ici, parce que l'API server est un vrai processus
+# avec une socket en écoute que Lima sait détecter.
+#
+# Les ports 80 et 443 NE PEUVENT PAS être redirigés par Lima : Cilium implémente
+# hostPort entièrement en eBPF, sans socket en écoute. Lima repère les ports à
+# rediriger en surveillant les sockets du invité, il ne voit donc rien — alors
+# que le port répond bel et bien. Utiliser ./local/expose.sh, qui monte un
+# tunnel SSH dont la connexion part de l'intérieur du invité.
+
+base: lima-node.yaml
+
+portForwards:
+  - guestPort: 6443
+    hostPort: 6443

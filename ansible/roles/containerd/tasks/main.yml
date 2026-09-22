@@ -1,0 +1,25 @@
+---
+- name: containerd installé
+  ansible.builtin.dnf:
+    name: containerd
+    state: present
+
+- name: Configuration par défaut générée
+  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+
+# Sans SystemdCgroup, le kubelet et containerd gèrent les cgroups différemment
+# et les pods redémarrent en boucle sous pression mémoire — critique ici (4 Go/nœud).
+- name: Pilote de cgroup systemd
+  ansible.builtin.lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: '^(\s*)SystemdCgroup\s*='
+    line: '            SystemdCgroup = true'
+  notify: Redémarrer containerd
+
+- name: containerd activé
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started

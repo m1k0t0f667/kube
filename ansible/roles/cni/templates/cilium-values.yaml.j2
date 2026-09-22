@@ -1,0 +1,36 @@
+# Valeurs Cilium — générées par Ansible, alignées sur les contraintes du projet.
+
+ipam:
+  mode: cluster-pool
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - "{{ pod_network_cidr }}"
+
+# kube-proxy est REMPLACÉ par eBPF — ce n'est pas un choix esthétique, c'est une
+# nécessité : Cilium n'implémente pas hostPort sans kubeProxyReplacement (la seule
+# alternative étant le chaînage CNI `portmap`, qui restreint les fonctions L7).
+# Or l'Ingress NGINX repose sur hostPort 80/443, exigence #3 du sujet.
+# Vérifié : avec kubeProxyReplacement désactivé, le pod ingress tourne mais le
+# port 80 du nœud refuse la connexion.
+# Bénéfice secondaire : kube-proxy n'est plus installé du tout (skipPhases dans
+# kubeadm-config), soit trois pods et leurs règles iptables en moins.
+kubeProxyReplacement: true
+k8sServiceHost: "{{ hostvars[groups['control_plane'][0]].node_ip }}"
+k8sServicePort: 6443
+
+# Un seul réplica : le cluster n'a qu'un control-plane (voir §7 du doc contraintes)
+# et le budget RAM est de ~9 Go utilisables pour ~7 Go de charges prévues.
+operator:
+  replicas: 1
+
+# Hubble : observabilité réseau, support direct du bonus « renforcement réseau ».
+# L'interface web est laissée désactivée — elle ajoute ~100 Mo et un Ingress ;
+# à activer depuis le dépôt GitOps quand la chaîne TLS sera en place.
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: false
+
+# SELinux est en Permissive sur AL2023, aucune adaptation nécessaire.

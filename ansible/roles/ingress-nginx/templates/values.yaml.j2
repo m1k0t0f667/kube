@@ -1,0 +1,47 @@
+# Ingress NGINX — valeurs générées par Ansible.
+#
+# Aucun load balancer n'est disponible (elbv2 refusé sur AWS, rien en local) :
+# le contrôleur tourne en DaemonSet avec hostPort 80/443 sur le nœud d'entrée.
+# Sur AWS c'est node-1, qui porte l'EIP fixe ; en local c'est node-1 aussi,
+# dont Lima redirige les ports vers l'hôte.
+#
+# hostPort plutôt que NodePort : le challenge HTTP-01 de Let's Encrypt frappe
+# le port 80, hors de la plage NodePort (30000-32767).
+
+controller:
+  kind: DaemonSet
+
+  hostPort:
+    enabled: true
+    ports:
+      http: 80
+      https: 443
+
+  # Un seul nœud porte l'entrée publique. Le label est posé par le rôle.
+  nodeSelector:
+    node-role.kubernetes.io/ingress: "true"
+
+  # Le nœud d'entrée est aussi le control-plane : tolérer le taint au cas où
+  # il serait rétabli (le rôle control-plane le lève, mais ne pas en dépendre).
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+  # Pas de Service de type LoadBalancer : il resterait Pending indéfiniment.
+  service:
+    enabled: false
+
+  ingressClassResource:
+    default: true
+
+  # Budget serré : 4 Go par nœud sur AWS, 3 Go en local.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+  metrics:
+    enabled: true   # ServiceMonitor activable plus tard par le dépôt GitOps

@@ -1,0 +1,27 @@
+---
+# Remplace les Access Points EFS, que le compte n'a pas le droit de créer
+# (efs:CreateAccessPoint refusé aux deux principals — doc contraintes §2, §6).
+# Les droits UNIX que l'Access Point aurait posés le sont ici, depuis un nœud
+# où /mnt/efs est déjà monté par le userData.
+
+- name: EFS effectivement monté
+  ansible.builtin.command: findmnt --noheadings --output SOURCE {{ efs_mount_point }}
+  register: efs_mounted
+  changed_when: false
+  failed_when: efs_mounted.rc != 0
+
+- name: Arborescence et droits des volumes persistants
+  ansible.builtin.file:
+    path: "{{ efs_mount_point }}/{{ item.dir }}"
+    state: directory
+    owner: "{{ item.uid }}"
+    group: "{{ item.uid }}"
+    mode: "{{ item.mode | default('0750') }}"
+  loop:
+    - { dir: mysql, uid: 1001 }          # bitnami/mysql tourne en UID 1001
+    - { dir: backups, uid: 1001 }
+    - { dir: harbor, uid: 10000 }        # composants Harbor en UID 10000
+    - { dir: harbor-pg, uid: 1001 }
+    - { dir: keycloak-pg, uid: 1001 }
+    - { dir: bootstrap, uid: 0, mode: "0700" }
+  run_once: true

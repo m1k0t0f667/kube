@@ -1,0 +1,44 @@
+# Gabarit d'un nœud du cluster local.
+# Utilisé par up.sh pour node-1, node-2 et node-3.
+#
+# Objectif : reproduire fidèlement les VM de l'école pour que les rôles Ansible
+# soient identiques des deux côtés — même distribution, même architecture.
+#
+#   AWS            t4g.medium · 2 vCPU · 4096 Mio · AL2023 arm64 · 30 Go
+#   local          qemu       · 2 vCPU · 3072 Mio · AL2023 arm64 · 30 Go
+#
+# Divergences assumées, à garder en tête :
+#   - 3 Gio au lieu de 4 (contrainte des 16 Go de l'hôte)
+#   - noyau 6.1 (image KVM) au lieu de 6.18 (AMI EC2)
+#
+# vmType DOIT rester qemu : l'image al2023-*kvm* ne démarre pas sous Apple
+# Virtualization Framework (vz) — testé, la VM reste sans sshd indéfiniment.
+#   - EFS émulé par un export NFS depuis node-1 (voir efs-server.yml)
+
+vmType: qemu
+arch: aarch64
+os: Linux
+
+images:
+  - location: "https://cdn.amazonlinux.com/al2023/os-images/2023.12.20260918.0/kvm-arm64/al2023-kvm-2023.12.20260918.0-kernel-6.1-arm64.xfs.gpt.qcow2"
+    arch: aarch64
+    digest: "sha256:4085733eaf8ecf4cb9575cb384afdf2053aaf6dc3507adbe9c9472070ac54231"
+
+cpus: 2
+memory: "3GiB"
+disk: "30GiB"   # l'image AL2023 fait 25 Gio, Lima ne sait pas rétrécir
+
+# user-v2 est le seul réseau Lima qui permet le VM-à-VM sans socket_vmnet
+# ni droits root sur l'hôte. Sans lui, chaque VM voit 192.168.5.15 et ne peut
+# joindre aucune autre — un cluster serait impossible.
+networks:
+  - lima: user-v2
+
+# Aucun partage de fichiers : Ansible passe par SSH, comme sur AWS.
+mounts: []
+
+# Lima installe containerd par défaut. On le laisse à Ansible,
+# c'est précisément le rôle qu'on veut tester.
+containerd:
+  system: false
+  user: false

@@ -1,0 +1,46 @@
+# ArgoCD — l'opérateur GitOps. Une fois amorcé ici par Ansible, il déploie
+# tout le reste depuis Git (exigences #9, #23, #25 : pas de kubectl apply manuel).
+
+global:
+  domain: argocd.{{ ingress_domain }}
+
+configs:
+  params:
+    # TLS terminé par l'Ingress : ArgoCD sert en clair derrière lui.
+    # Sans cela, NGINX parle HTTP à un backend HTTPS et renvoie 400.
+    server.insecure: true
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: {{ ingress_cluster_issuer }}
+    tls: true
+  resources:
+    requests: { cpu: 25m, memory: 96Mi }
+
+controller:
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+
+repoServer:
+  resources:
+    requests: { cpu: 25m, memory: 128Mi }
+
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+
+applicationSet:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+
+# dex embarqué désactivé : l'exigence #12 impose NOTRE dex, fédérant Keycloak,
+# comme issuer OIDC unique. Deux dex coexistant seraient une source de confusion.
+dex:
+  enabled: false
+
+# Économie de RAM : le budget est de ~9 Go utilisables pour ~7 Go de charges.
+notifications:
+  enabled: false

@@ -1,0 +1,70 @@
+---
+# Teardown. Rend les nœuds à leur état d'avant kubeadm.
+#   ansible-playbook reset.yml -e confirm=oui
+#
+# NE TOUCHE PAS à /mnt/efs : les données persistantes doivent survivre au teardown,
+# c'est ce qui rend la reconstruction possible (§7 du doc contraintes).
+
+- name: Garde-fou
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Confirmation explicite requise
+      ansible.builtin.assert:
+        that: confirm | default('') == 'oui'
+        fail_msg: "relancer avec -e confirm=oui"
+
+- name: Réinitialiser les nœuds
+  hosts: all
+  become: true
+  tasks:
+    - name: kubeadm reset
+      ansible.builtin.command: kubeadm reset -f
+      register: reset
+      changed_when: reset.rc == 0
+      failed_when: false
+
+    - name: Nettoyer la configuration résiduelle
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kubernetes
+        - /var/lib/etcd
+        - /var/lib/kubelet
+        - /etc/cni/net.d
+        - /root/.kube
+        - /home/ec2-user/.kube
+
+    # kubeadm reset ne défait pas le CNI : Cilium laisse ses interfaces, son
+    # état et ses programmes eBPF. Sans ce nettoyage, la reconstruction repart
+    # sur un réseau pollué et les pods obtiennent des routes incohérentes.
+    - name: Supprimer les interfaces réseau de Cilium
+      ansible.builtin.command: ip link delete {{ item }}
+      loop: [cilium_host, cilium_net, cilium_vxlan, lxc_health]
+      register: link_del
+      changed_when: link_del.rc == 0
+      failed_when: false
+
+    - name: Purger l'état de Cilium
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/run/cilium
+        - /var/lib/cilium
+        - /etc/kubernetes/cilium-values.yaml
+
+    # `iptables -X` échoue légitimement quand une chaîne est encore référencée,
+    # selon l'ordre d'arrêt des composants. Ce n'est pas bloquant pour un
+    # teardown : les chaînes résiduelles sont vidées et kube-proxy reconstruit
+    # les siennes au prochain démarrage.
+    - name: Purger les règles iptables laissées par le CNI
+      ansible.builtin.shell: |
+        iptables -F; iptables -t nat -F; iptables -t mangle -F; iptables -X || true
+      changed_when: true
+      failed_when: false
+
+    - name: Vérifier que l'EFS est intact
+      ansible.builtin.command: findmnt --noheadings {{ efs_mount_point }}
+      changed_when: false
