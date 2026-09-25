@@ -50,7 +50,7 @@
     release_namespace: kube-system
     values_files:
       - /etc/kubernetes/cilium-values.yaml
-    kubeconfig: /etc/kubernetes/admin.conf
+    kubeconfig: "{{ user_home }}/.kube/config"
     wait: true
     wait_timeout: 10m
 

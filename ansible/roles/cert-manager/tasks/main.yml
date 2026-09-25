@@ -22,7 +22,7 @@
       cainjector:
         resources:
           requests: { cpu: 10m, memory: 64Mi }
-    kubeconfig: /etc/kubernetes/admin.conf
+    kubeconfig: "{{ user_home }}/.kube/config"
     wait: true
     wait_timeout: 10m
 

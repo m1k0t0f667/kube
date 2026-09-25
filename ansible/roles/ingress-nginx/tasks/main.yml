@@ -30,7 +30,7 @@
     create_namespace: true
     values_files:
       - /etc/kubernetes/ingress-nginx-values.yaml
-    kubeconfig: /etc/kubernetes/admin.conf
+    kubeconfig: "{{ user_home }}/.kube/config"
     wait: true
     wait_timeout: 10m
 
