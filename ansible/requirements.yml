@@ -5,3 +5,4 @@ collections:
   - name: ansible.posix        # mount, sysctl
   - name: community.general    # modprobe
   - name: ansible.utils        # network_in_network (pré-vol CIDR)
+  - name: kubernetes.core      # helm_repository, helm (cni, ingress-nginx, cert-manager, argocd)
