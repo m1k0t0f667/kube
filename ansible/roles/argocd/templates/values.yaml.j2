@@ -16,6 +16,7 @@ server:
     ingressClassName: traefik
     annotations:
       cert-manager.io/cluster-issuer: {{ ingress_cluster_issuer }}
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-redirect-https@kubernetescrd
     tls: true
   resources:
     requests: { cpu: 25m, memory: 96Mi }

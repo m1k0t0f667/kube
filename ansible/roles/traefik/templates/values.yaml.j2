@@ -63,3 +63,22 @@ resources:
     memory: 128Mi
   limits:
     memory: 256Mi
+
+# Redirection HTTP → HTTPS, activée Ingress par Ingress avec l'annotation
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-redirect-https@kubernetescrd
+# Pas de redirection globale sur l'entryPoint web : l'Ingress temporaire du
+# challenge HTTP-01 (cert-manager) doit répondre en clair sur le port 80.
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: redirect-https
+      namespace: traefik
+    spec:
+      redirectScheme:
+        scheme: https
+        permanent: true
+{% if not (acme_enabled | default(false) | bool) %}
+        # En local, le HTTPS de l'hôte passe par le tunnel de local/expose.sh.
+        port: "8443"
+{% endif %}
