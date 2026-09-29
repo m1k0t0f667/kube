@@ -16,8 +16,8 @@ k8s_version: "1.33.4"
 # CNI. Images multi-arch, arm64 vérifié.
 cilium_version: "1.20.2"
 
-# Ingress. Chart 4.15.1 = app 1.15.1, arm64 vérifié.
-ingress_nginx_version: "4.15.1"
+# Ingress. Chart 41.6.0 = Traefik v3.7.13, image multi-arch (arm64).
+traefik_version: "41.6.0"
 
 # PKI et GitOps
 cert_manager_version: "v1.21.2"

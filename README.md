@@ -52,7 +52,7 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 | 1 | **[I]** Provisionner le cluster avec Ansible, reconstructible | `kubeadm` piloté par rôles Ansible (`common`, `containerd`, `control-plane`, `worker`, `cni`) + `reset.yml` de teardown | `kubeadm` est l'outil de référence : il *montre* les composants (etcd, apiserver, kubelet), ce que la soutenance exige (« responsabilité de chaque composant »). k3s/RKE2 masqueraient tout et rendraient le flag OIDC de l'apiserver moins démonstratif. Inventaire statique + connexion via SSM. |
 | 1b | *Terraform en complément ?* | **Écarté** | **L'infrastructure est fournie, pas provisionnée par nous** : VM, EFS, VPC et IAM Identity Center sont livrés par l'école — Terraform déclare ce qu'on crée, et il n'y a presque rien à créer. Le sujet impose Ansible et rien d'autre : Terraform ne coche aucune case notée, ajoute un `tfstate` à héberger, et risque d'échouer au `plan` faute de droits IAM en lecture sur un compte géré par l'école. Coût ~3-4 j/h pour zéro point. **Seul périmètre légitime** — Access Points EFS et rôle IAM du driver EFS CSI, soit 3 ressources : une tâche Ansible avec l'`aws` CLI suffit, sans state à gérer. Pour démontrer de la maturité IaC, le gain noté est ailleurs : l'idempotence réelle des playbooks et un teardown/rebuild propre (« torn down and rebuilt reproducibly »). |
 | 2 | CNI | **Cilium** (ou Flannel si on veut le minimum) | Cilium apporte les NetworkPolicies eBPF utiles au bonus « renforcement réseau » et Hubble pour la démo. Flannel = repli si le temps manque. |
-| 3 | **[I]** Exposition Ingress ou Gateway API | **Ingress NGINX**, `DaemonSet` + `hostPort: 80/443` sur `kube-1` | Le sujet impose NodePort/sslip.io. **Piège** : Let's Encrypt HTTP-01 frappe le **port 80**, hors plage NodePort (30000-32767). `hostPort` sur le nœud à IP publique stable résout le problème sans load balancer. Gateway API écarté : plus élégant mais l'écosystème cert-manager/OIDC y est moins mûr — risque non nécessaire. |
+| 3 | **[I]** Exposition Ingress ou Gateway API | **Traefik**, `DaemonSet` + `hostPort: 80/443` sur `kube-1`, plus un Service `NodePort` 30080/30443 | Le sujet impose NodePort/sslip.io : le NodePort est là, joignable depuis le VPC. **Piège** : le security group n'ouvre que 80/443 et Let's Encrypt HTTP-01 frappe le **port 80**, hors plage NodePort (30000-32767). `hostPort` sur le nœud à IP publique stable résout le problème sans load balancer. ingress-nginx écarté : fin de vie en mars 2026, plus de correctifs (CVE-2026-42945 « NGINX Rift », critique). Gateway API écarté : plus élégant mais l'écosystème cert-manager/OIDC y est moins mûr — risque non nécessaire. |
 | 4 | Résolution DNS | `sslip.io` — `app.<IP_PUBLIQUE_KUBE1>.sslip.io` | Imposé de fait, pas de DNS wildcard fourni. L'IP publique de `kube-1` survit aux extinctions nocturnes → certificats TLS valides d'un jour sur l'autre. |
 | 5 | **[I]** HTTPS partout | **cert-manager** + `ClusterIssuer` Let's Encrypt (HTTP-01), `Certificate` par Ingress | Imposé. Utiliser **staging** pendant tout le dev (quota prod = 50 certs/semaine/domaine, vite atteint en cluster jetable), bascule prod en fin de projet. |
 | 5b | **[J]** PKI interne (TLS intra-cluster) | Second `ClusterIssuer` de type **CA** (`SelfSigned` → CA racine → issuer) + **trust-manager** pour distribuer le bundle | **Deux issuers, deux périmètres.** `letsencrypt-prod` pour tout ce qui est exposé (le navigateur doit faire confiance, et l'apiserver doit valider l'issuer OIDC de dex sans qu'on lui injecte une CA maison). `internal-ca` pour tout ce qui ne sort jamais du cluster : TLS MySQL, webhooks, scraping Prometheus, mTLS. Bénéfice réel : **aucun quota ACME**, là où un cluster reconstruit souvent épuise vite les 50 certs/semaine (cf. risque 2). Attention au contresens : la rotation automatique n'est **pas** l'argument — cert-manager renouvelle déjà seul à 2/3 de la durée de vie. trust-manager évite de recopier le bundle CA à la main dans chaque namespace. |
@@ -127,7 +127,7 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
               ┌─────────────────────────────┐
               │  kube-1  (IP publique fixe) │  control-plane + worker
               │  ─────────────────────────  │
-              │  Ingress NGINX (hostPort)   │
+              │  Traefik (hostPort 80/443)  │
               │  etcd · apiserver           │  --oidc-issuer-url=https://dex...
               │  scheduler · controller-mgr │
               └──────────────┬──────────────┘
@@ -179,7 +179,7 @@ kube-infra/                          kube-app/
 ├── clusters/prod/                   │       └── pdb.yaml
 │   └── app-of-apps.yaml             ├── k8s/
 ├── components/                      │   ├── base/
-│   ├── ingress-nginx/               │   └── overlays/{staging,prod}/
+│   ├── traefik/                     │   └── overlays/{staging,prod}/
 │   ├── cert-manager/                ├── .github/workflows/
 │   ├── argocd/                      │   └── build-push.yml   # build → Harbor → bump tag
 │   ├── keycloak/                    └── docs/
@@ -294,7 +294,7 @@ déjà pratiqué Kubernetes.
 | Accès AWS, SSM, montage EFS, préparation des VM | 2 |
 | **Ansible : provisioning kubeadm complet, idempotent, teardown/rebuild** | **8** |
 | CNI + validation réseau | 2 |
-| Ingress NGINX + hostPort + sslip.io | 2 |
+| Traefik + hostPort + NodePort + sslip.io | 2 |
 | cert-manager + Let's Encrypt (HTTP-01 via hostPort) | 3 |
 | PKI interne : `ClusterIssuer` CA + trust-manager + TLS intra-cluster | 1,5 |
 | Harbor + imagePullSecrets + push d'image | 3 |
@@ -361,21 +361,24 @@ prête — **le tableau §2 est la réponse**, et le document D3 en est le suppo
 
 À savoir défendre sans hésiter :
 
-1. **Pourquoi Ingress NGINX plutôt que Gateway API ?** → maturité de l'écosystème
+1. **Pourquoi Traefik et pas ingress-nginx ?** → ingress-nginx est en fin de vie
+   depuis mars 2026, sans correctif face à des failles critiques (CVE-2026-42945).
+   À ne pas confondre avec le contrôleur NGINX de F5, projet distinct et maintenu.
+2. **Pourquoi un Ingress plutôt que Gateway API ?** → maturité de l'écosystème
    cert-manager/OIDC ; Gateway API est l'avenir mais aurait ajouté du risque sur un
    chemin critique.
-2. **Pourquoi ArgoCD plutôt que FluxCD ?** → l'exigence de *montrer* sync et health.
-3. **Pourquoi Keycloak derrière dex plutôt que dex seul ?** → dex est un *broker*, pas
+3. **Pourquoi ArgoCD plutôt que FluxCD ?** → l'exigence de *montrer* sync et health.
+4. **Pourquoi Keycloak derrière dex plutôt que dex seul ?** → dex est un *broker*, pas
    un magasin d'utilisateurs ; le sujet demande un IdP déployé par nos soins.
-4. **Pourquoi Headlamp et pas Rancher ?** → périmètre (dashboard vs gestionnaire de
+5. **Pourquoi Headlamp et pas Rancher ?** → périmètre (dashboard vs gestionnaire de
    clusters) et conflit avec l'auth et l'admission natives exigées.
-5. **Pourquoi Sealed Secrets plutôt qu'External Secrets ?** → pas de backend externe à
+6. **Pourquoi Sealed Secrets plutôt qu'External Secrets ?** → pas de backend externe à
    opérer ; contrepartie assumée : la clé privée devient un actif critique à sauvegarder.
-6. **Pourquoi deux autorités de certification ?** → périmètres disjoints : ACME pour l'exposé
+7. **Pourquoi deux autorités de certification ?** → périmètres disjoints : ACME pour l'exposé
    (confiance du navigateur, pas de CA maison à injecter dans l'apiserver), CA interne pour
    l'intra-cluster (aucun quota, révocation immédiate). Et savoir dire que la rotation
    automatique vient de cert-manager, pas du choix de CA.
-7. **Pourquoi pas Terraform ?** → l'infrastructure est fournie, pas créée ; le sujet impose
+8. **Pourquoi pas Terraform ?** → l'infrastructure est fournie, pas créée ; le sujet impose
    Ansible ; la reproductibilité notée est celle du cluster, et elle est dans les playbooks.
-8. **Pourquoi MySQL sur EFS malgré les limites de NFS ?** → imposé par le sujet ; écart
+9. **Pourquoi MySQL sur EFS malgré les limites de NFS ?** → imposé par le sujet ; écart
    documenté, et l'on saurait dire ce qu'on ferait en production.

@@ -82,7 +82,7 @@
   changed_when: false
 
 # Le cluster n'a que 3 nœuds et le README §3 décrit node-1 comme control-plane
-# ET worker. Sans lever ce taint : l'Ingress NGINX en hostPort ne peut pas s'y
+# ET worker. Sans lever ce taint : Traefik en hostPort ne peut pas s'y
 # planifier, et l'exigence #19 (3 replicas en anti-affinité stricte) est
 # infaisable puisque seuls 2 nœuds seraient schedulables.
 # Les charges lourdes (Prometheus, Loki, Harbor, MySQL) restent dirigées vers

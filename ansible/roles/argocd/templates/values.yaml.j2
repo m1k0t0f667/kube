@@ -7,13 +7,13 @@ global:
 configs:
   params:
     # TLS terminé par l'Ingress : ArgoCD sert en clair derrière lui.
-    # Sans cela, NGINX parle HTTP à un backend HTTPS et renvoie 400.
+    # Sans cela, Traefik parle HTTP à un backend qui redirige vers HTTPS : boucle.
     server.insecure: true
 
 server:
   ingress:
     enabled: true
-    ingressClassName: nginx
+    ingressClassName: traefik
     annotations:
       cert-manager.io/cluster-issuer: {{ ingress_cluster_issuer }}
     tls: true

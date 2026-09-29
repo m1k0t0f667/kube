@@ -9,7 +9,7 @@ ipam:
 # kube-proxy est REMPLACÉ par eBPF — ce n'est pas un choix esthétique, c'est une
 # nécessité : Cilium n'implémente pas hostPort sans kubeProxyReplacement (la seule
 # alternative étant le chaînage CNI `portmap`, qui restreint les fonctions L7).
-# Or l'Ingress NGINX repose sur hostPort 80/443, exigence #3 du sujet.
+# Or Traefik repose sur hostPort 80/443, exigence #3 du sujet.
 # Vérifié : avec kubeProxyReplacement désactivé, le pod ingress tourne mais le
 # port 80 du nœud refuse la connexion.
 # Bénéfice secondaire : kube-proxy n'est plus installé du tout (skipPhases dans
