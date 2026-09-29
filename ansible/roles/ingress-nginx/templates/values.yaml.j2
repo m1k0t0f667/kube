@@ -5,7 +5,7 @@
 # Sur AWS c'est node-1, qui porte l'EIP fixe ; en local c'est node-1 aussi,
 # dont Lima redirige les ports vers l'hôte.
 #
-# hostPort plutôt que NodePort : le challenge HTTP-01 de Let's Encrypt frappe
+# hostPort en plus du NodePort : le challenge HTTP-01 de Let's Encrypt frappe
 # le port 80, hors de la plage NodePort (30000-32767).
 
 controller:
@@ -28,9 +28,15 @@ controller:
       operator: Exists
       effect: NoSchedule
 
-  # Pas de Service de type LoadBalancer : il resterait Pending indéfiniment.
+  # NodePort en plus du hostPort : exigence du sujet. Joignable seulement depuis
+  # le VPC (le security group ne laisse passer que 80/443). Pas de LoadBalancer :
+  # il resterait Pending indéfiniment.
   service:
-    enabled: false
+    enabled: true
+    type: NodePort
+    nodePorts:
+      http: 30080
+      https: 30443
 
   ingressClassResource:
     default: true
