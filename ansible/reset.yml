@@ -46,6 +46,17 @@
       changed_when: link_del.rc == 0
       failed_when: false
 
+    # Cilium monte un cgroup2 dans /run/cilium/cgroupv2 : tant qu'il est monté,
+    # rmtree échoue (« Operation not permitted: 'io.pressure' »). Démonter d'abord,
+    # du plus profond au plus haut ; -l car un processus peut encore le tenir.
+    - name: Démonter les points de montage de Cilium
+      ansible.builtin.shell: |
+        mnts=$(findmnt -rn -o TARGET | grep '^/run/cilium' | sort -r)
+        for m in $mnts; do umount -l "$m" && echo "$m"; done
+      register: cilium_umount
+      changed_when: cilium_umount.stdout != ''
+      failed_when: false
+
     - name: Purger l'état de Cilium
       ansible.builtin.file:
         path: "{{ item }}"
