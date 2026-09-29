@@ -41,7 +41,7 @@
   become: true
   tags: [ingress]
   roles:
-    - ingress-nginx
+    - traefik
 
 - name: PKI
   hosts: control_plane

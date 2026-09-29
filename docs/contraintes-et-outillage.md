@@ -88,7 +88,7 @@ Référencé sur la numérotation du README §2.
 | 1 | Provisioning Ansible | **Fort** | Control node sur node-1, SSH intra-VPC vers node-2/3 (§4) |
 | 1b | Terraform | **Écarté, confirmé** | Aucune ressource créable. La décision du README est la bonne, et la justification peut être chiffrée en soutenance |
 | 2 | CNI Cilium | Aucun | eBPF ne dépend d'aucun droit AWS. Vérifier le kernel : **6.18 arm64**, largement suffisant |
-| 3 | Ingress NGINX `hostPort` 80/443 | Aucun | Le SG autorise déjà 80 et 443 depuis `0.0.0.0/0`. Rien à ouvrir — et c'est heureux, tu ne pourrais pas |
+| 3 | Traefik `hostPort` 80/443 (+ NodePort 30080/30443, interne au VPC) | Aucun | Le SG autorise déjà 80 et 443 depuis `0.0.0.0/0`. Rien à ouvrir — et c'est heureux, tu ne pourrais pas |
 | 4 | DNS `sslip.io` | Aucun | `*.15.224.60.53.sslip.io` — l'EIP est stable, `route53:*` refusé mais inutile |
 | 5 | HTTPS Let's Encrypt HTTP-01 | Aucun | Port 80 déjà ouvert. Le challenge passe |
 | 5b | PKI interne | Aucun | 100 % in-cluster |
@@ -126,7 +126,7 @@ flowchart TB
     end
 
     subgraph aws["VPC 10.0.0.0/24 — eu-west-3a — SG : 80, 443, self"]
-        n1["<b>node-1</b> · 10.0.0.80 · EIP 15.224.60.53<br/>control node Ansible + control-plane<br/>Ingress NGINX hostPort 80/443"]
+        n1["<b>node-1</b> · 10.0.0.80 · EIP 15.224.60.53<br/>control node Ansible + control-plane<br/>Traefik hostPort 80/443"]
         n2["<b>node-2</b> · 10.0.0.17<br/>worker"]
         n3["<b>node-3</b> · 10.0.0.143<br/>worker"]
         efs[("Amazon EFS<br/>fs-038bf0f49474a6a1d<br/>monté sur /mnt/efs")]

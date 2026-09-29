@@ -23,7 +23,7 @@ roles/
   control-plane          kubeadm init, kubeconfig de secours sur EFS, untaint
   worker                 kubeadm join
   cni                    Helm + Cilium (eBPF, Hubble, remplace kube-proxy)
-  ingress-nginx          DaemonSet hostPort 80/443 sur le nœud d'entrée
+  traefik                DaemonSet hostPort 80/443 + NodePort 30080/30443
   cert-manager           issuers internal-ca + letsencrypt (AWS uniquement)
   argocd                 amorçage GitOps, Ingress TLS
 ```
@@ -54,7 +54,7 @@ Validé de bout en bout sur le cluster local (voir `local/README.md`) :
 
 Versions épinglées et vérifiées, toutes en arm64 : Kubernetes **1.33.4**,
 containerd **2.2.7** (dépôt `amazonlinux`), Cilium **1.20.2**, Helm **v4.3.0**,
-ingress-nginx **4.15.1**, cert-manager **v1.21.2**, ArgoCD **10.9.2**.
+Traefik **41.6.0** (v3.7.13), cert-manager **v1.21.2**, ArgoCD **10.9.2**.
 
 ## Reste à faire
 

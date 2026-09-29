@@ -117,7 +117,7 @@ UI ArgoCD depuis macOS      HTTP 200, certificat signé par kube-internal-ca
 | Namespace | Contenu |
 |---|---|
 | `kube-system` | Cilium (eBPF, kube-proxy remplacé), CoreDNS, etcd, apiserver, scheduler, controller-manager, Hubble |
-| `ingress-nginx` | Ingress NGINX, DaemonSet hostPort 80/443 sur node-1 |
+| `traefik` | Traefik, DaemonSet hostPort 80/443 sur node-1 + NodePort 30080/30443 |
 | `cert-manager` | cert-manager + issuers `selfsigned` et `internal-ca` |
 | `argocd` | ArgoCD (dex embarqué et notifications désactivés) |
 

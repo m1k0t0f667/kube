@@ -1,0 +1,84 @@
+# Traefik — valeurs générées par Ansible.
+#
+# Traefik plutôt qu'ingress-nginx : ce dernier est en fin de vie depuis mars 2026,
+# sans correctif alors que des failles critiques continuent de sortir
+# (CVE-2026-42945 « NGINX Rift », mai 2026).
+#
+# Aucun load balancer n'est disponible (elbv2 refusé sur AWS, rien en local) :
+# le contrôleur tourne en DaemonSet avec hostPort 80/443 sur le nœud d'entrée.
+# Sur AWS c'est node-1, qui porte l'EIP fixe ; en local c'est node-1 aussi,
+# dont Lima redirige les ports vers l'hôte.
+#
+# hostPort en plus du NodePort : le challenge HTTP-01 de Let's Encrypt frappe
+# le port 80, hors de la plage NodePort (30000-32767).
+
+deployment:
+  kind: DaemonSet
+
+# Le défaut du chart (maxSurge 1) bloque le rollout : le nouveau pod ne peut pas
+# prendre les hostPort 80/443 tant que l'ancien les tient. On remplace d'abord.
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
+# Traefik écoute sur 8000/8443 dans le conteneur (non-root) ; le hostPort
+# publie ces ports en 80/443 sur le nœud.
+ports:
+  web:
+    hostPort: 80
+    nodePort: 30080
+  websecure:
+    hostPort: 443
+    nodePort: 30443
+
+# NodePort : exigence du sujet. Joignable seulement depuis le VPC (le security
+# group ne laisse passer que 80/443). Pas de LoadBalancer : il resterait
+# Pending indéfiniment.
+service:
+  spec:
+    type: NodePort
+
+# Nom explicite : cert-manager et ArgoCD le référencent.
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+  name: traefik
+
+# Un seul nœud porte l'entrée publique. Le label est posé par le rôle.
+nodeSelector:
+  node-role.kubernetes.io/ingress: "true"
+
+# Le nœud d'entrée est aussi le control-plane : tolérer le taint au cas où
+# il serait rétabli (le rôle control-plane le lève, mais ne pas en dépendre).
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+# Budget serré : 4 Go par nœud sur AWS, 3 Go en local.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Redirection HTTP → HTTPS, activée Ingress par Ingress avec l'annotation
+#   traefik.ingress.kubernetes.io/router.middlewares: traefik-redirect-https@kubernetescrd
+# Pas de redirection globale sur l'entryPoint web : l'Ingress temporaire du
+# challenge HTTP-01 (cert-manager) doit répondre en clair sur le port 80.
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: redirect-https
+      namespace: traefik
+    spec:
+      redirectScheme:
+        scheme: https
+        permanent: true
+{% if not (acme_enabled | default(false) | bool) %}
+        # En local, le HTTPS de l'hôte passe par le tunnel de local/expose.sh.
+        port: "8443"
+{% endif %}
