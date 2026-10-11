@@ -42,7 +42,7 @@ and pull images from it ». Il **n'impose pas** que ce registry tourne dans le c
   couvre aussi le bonus « sécurité des artefacts ».
 - Le registry n'est pas derrière notre OIDC : à dire en soutenance. L'accès y est quand
   même authentifié et limité par les permissions GitHub.
-- Les répertoires EFS `harbor` et `harbor-pg` du rôle `efs` sont à retirer.
+- Les répertoires EFS `harbor` et `harbor-pg` ont été retirés du rôle `efs` (KUB-76).
 
 ## En soutenance
 

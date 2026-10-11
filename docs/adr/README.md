@@ -8,28 +8,28 @@ réponses préparées pour la soutenance (voir aussi J4-05, fiche des questions 
 Les contraintes citées (C1 à C7) renvoient à
 [`docs/contraintes-et-outillage.md`](../contraintes-et-outillage.md), où chacune est
 prouvée par appel API. Les arbitrages (A1 à A8) renvoient à la fiche d'arbitrages
-du 29/09/2026.
+du 29/09/2026. Les schémas qui en découlent sont dans [`docs/architecture/`](../architecture/hld.md) (HLD et LLD).
 
 ## Index
 
 | # | Décision | Catégorie | Statut |
 |---|---|---|---|
-| [001](001-pas-de-terraform.md) | Pas de Terraform | Provisioning | Acceptée |
-| [002](002-provisioning-ansible-kubeadm.md) | Ansible + kubeadm, lancés depuis node-1 | Provisioning | Acceptée |
-| [003](003-topologie-control-plane-unique.md) | Un seul control-plane, node-1 sans charge applicative | Architecture | Acceptée |
-| [004](004-cni-cilium.md) | CNI : Cilium, sans kube-proxy | Réseau | Acceptée |
-| [005](005-ingress-traefik.md) | Contrôleur d'ingress : Traefik | Exposition | Acceptée |
-| [006](006-exposition-hostport.md) | Exposition en hostPort 80/443 + sslip.io (écart au sujet) | Exposition | Acceptée, à confirmer au FU |
-| [007](007-tls-letsencrypt-ca-interne.md) | TLS : Let's Encrypt HTTP-01 + CA interne | Sécurité | Acceptée |
-| [008](008-stockage-efs-local-path.md) | Stockage : EFS CSI en PV statiques + local-path | Stockage | Acceptée |
-| [009](009-base-de-donnees-mysql.md) | Base de données : chart Bitnami MySQL, standalone, sur EFS | Application | Acceptée, sous condition J0-07 |
-| [010](010-gitops-argocd.md) | GitOps : ArgoCD, deux dépôts, App-of-Apps | GitOps | Acceptée |
-| [011](011-metriques-victoriametrics.md) | Métriques et alertes : VictoriaMetrics + Grafana | Observabilité | Acceptée |
-| [012](012-logs-loki-alloy.md) | Logs : Loki + Alloy | Observabilité | Acceptée |
-| [013](013-dashboard-headlamp.md) | Dashboard : Headlamp | Outillage | Acceptée |
-| [014](014-secrets-sealed-secrets.md) | Secrets : Sealed Secrets | Sécurité | Acceptée |
-| [015](015-identite-keycloak-dex.md) | Identité : Keycloak fédéré par dex | Sécurité | Acceptée |
-| [016](016-registry-ghcr.md) | Registry privé : GHCR | CI/CD | Acceptée, à confirmer au FU |
+| [001](ADR-001-pas-de-terraform.md) | Pas de Terraform | Provisioning | Proposée (Hadrien, KUB-65) |
+| [002](ADR-002-provisioning-ansible-kubeadm.md) | Ansible + kubeadm, lancés depuis node-1 | Provisioning | Acceptée |
+| [003](ADR-003-topologie-control-plane-unique.md) | Un seul control-plane, node-1 sans charge applicative | Architecture | Acceptée |
+| [004](ADR-004-cni-cilium.md) | CNI : Cilium, sans kube-proxy | Réseau | Acceptée |
+| [005](ADR-005-ingress-traefik.md) | Contrôleur d'ingress : Traefik | Exposition | Acceptée |
+| [006](ADR-006-exposition-hostport.md) | Exposition en hostPort 80/443 + sslip.io (écart au sujet) | Exposition | Acceptée, à confirmer au FU |
+| [007](ADR-007-tls-letsencrypt-ca-interne.md) | TLS : Let's Encrypt HTTP-01 + CA interne | Sécurité | Acceptée |
+| [008](ADR-008-stockage-efs-local-path.md) | Stockage : EFS CSI en PV statiques + local-path | Stockage | Acceptée |
+| [009](ADR-009-base-de-donnees-mysql.md) | Base de données : chart Bitnami MySQL, standalone, sur EFS | Application | Acceptée, sous condition J0-07 |
+| [010](ADR-010-gitops-argocd.md) | GitOps : ArgoCD, deux dépôts, App-of-Apps | GitOps | Acceptée |
+| [011](ADR-011-metriques-victoriametrics.md) | Métriques et alertes : VictoriaMetrics + Grafana | Observabilité | Acceptée |
+| [012](ADR-012-logs-loki-alloy.md) | Logs : Loki + Alloy | Observabilité | Acceptée |
+| [013](ADR-013-dashboard-headlamp.md) | Dashboard : Headlamp | Outillage | Acceptée |
+| [014](ADR-014-secrets-sealed-secrets.md) | Secrets : Sealed Secrets | Sécurité | Acceptée |
+| [015](ADR-015-identite-keycloak-dex.md) | Identité : Keycloak fédéré par dex | Sécurité | Acceptée |
+| [016](ADR-016-registry-ghcr.md) | Registry privé : GHCR | CI/CD | Acceptée, à confirmer au FU |
 
 Ce qui n'a **pas** d'ADR parce que le sujet l'impose sans alternative : Ansible,
 dex, Loki, Kustomize, Helm pour l'application, ValidatingAdmissionPolicy (CEL),
@@ -43,14 +43,12 @@ arbitrages du 29/09. **En cas de contradiction, l'ADR fait foi.** Points connus 
 
 | Doc existante | Décision actée | ADR |
 |---|---|---|
-| Ingress NGINX | Traefik | 005 |
-| kube-prometheus-stack | VictoriaMetrics | 011 |
-| Harbor (ou Zot) dans le cluster | GHCR | 016 |
-| 3 réplicas, node-1 schedulable pour l'app | 2 réplicas sur node-2 et node-3 | 003 |
+| kube-prometheus-stack (§2.2 #7, §3, §7) | VictoriaMetrics | 011 |
+| 3 réplicas sur l'app (§2.4 #19, §6) | 2 réplicas sur node-2 et node-3 | 003 |
 
 ## Rédiger un nouvel ADR
 
-1. Copier [`000-modele.md`](000-modele.md) en `NNN-titre-court.md` (numéro suivant).
+1. Copier [`ADR-000-modele.md`](ADR-000-modele.md) en `ADR-NNN-titre-court.md` (numéro suivant).
 2. Un ADR accepté ne se réécrit pas : si la décision change, on écrit un nouvel ADR et on
    passe l'ancien en « Remplacée par ADR-NNN ».
 3. Chaque ADR est relu par quelqu'un qui ne l'a pas écrit, via la PR.

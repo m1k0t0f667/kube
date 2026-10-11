@@ -53,8 +53,7 @@ Replis, dans l'ordre, si le driver CSI refuse le montage statique : PV `hostPath
 - Les pods en `local-path` ne changent pas de nœud : un nœud perdu, ses métriques et ses
   logs sont perdus. Acceptable, ces données sont reconstructibles.
 - Le stockage partagé n'est **pas** de la redondance : MySQL reste mono-instance (ADR-009).
-- À faire : local-path-provisioner n'est pas encore déployé. Les répertoires `harbor` et
-  `harbor-pg` du rôle `efs` sont devenus inutiles avec GHCR (ADR-016).
+- À faire : local-path-provisioner n'est pas encore déployé.
 
 ## En soutenance
 
