@@ -39,12 +39,9 @@ fait l'objet d'une fiche quand elle comporte un choix.
 ## Écarts entre ces ADR et le reste de la doc
 
 Le [README](../../README.md) et `contraintes-et-outillage.md` ont été écrits avant les
-arbitrages du 29/09. **En cas de contradiction, l'ADR fait foi.** Points connus :
-
-| Doc existante | Décision actée | ADR |
-|---|---|---|
-| kube-prometheus-stack (§2.2 #7, §3, §7) | VictoriaMetrics | 011 |
-| 3 réplicas sur l'app (§2.4 #19, §6) | 2 réplicas sur node-2 et node-3 | 003 |
+arbitrages du 29/09, puis alignés sur ces ADR le 11/10/2026 (KUB-69, KUB-76). Aucun écart
+connu à cette date. **En cas de contradiction, l'ADR fait foi** : corriger la doc, pas
+l'ADR.
 
 ## Rédiger un nouvel ADR
 
