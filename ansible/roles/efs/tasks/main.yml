@@ -20,8 +20,6 @@
   loop:
     - { dir: mysql, uid: 1001 }          # bitnami/mysql tourne en UID 1001
     - { dir: backups, uid: 1001 }
-    - { dir: harbor, uid: 10000 }        # composants Harbor en UID 10000
-    - { dir: harbor-pg, uid: 1001 }
     - { dir: keycloak-pg, uid: 1001 }
     - { dir: bootstrap, uid: 0, mode: "0700" }
   run_once: true

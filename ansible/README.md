@@ -59,7 +59,7 @@ Traefik **41.6.0** (v3.7.13), cert-manager **v1.21.2**, ArgoCD **10.9.2**.
 ## Reste à faire
 
 - Dépôts GitOps `kube-infra` / `kube-app` et App-of-Apps : tout le reste
-  (Keycloak, dex, Harbor, monitoring, application) passe par ArgoCD, plus par Ansible
+  (Keycloak, dex, monitoring, application) passe par ArgoCD, plus par Ansible
 - Patch OIDC de l'apiserver (`roles/control-plane`, exigence #13) — après que dex
   réponde en TLS valide, jamais avant : voir risque #1 du README racine
 - Rejouer sur les VM AWS avec `inventory/hosts.yml`
