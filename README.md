@@ -212,7 +212,7 @@ répartis sur les deux dépôts.
 |---|---|---|---|---|
 | D1 | `README.md` racine × 2 | les deux | Objet du dépôt, prérequis, démarrage rapide, arborescence, index des docs | 2 j/h |
 | D2 | `docs/provisioning.md` | infra | **Le plus important.** Accès SSM, inventaire, rôles Ansible commentés un par un, exécution, vérification, teardown, reconstruction, dépannage | 3 j/h |
-| D3 | `docs/architecture.md` | infra | Schémas (réseau, flux OIDC, flux GitOps), rôle et responsabilité de chaque composant, **tableau des choix justifiés + alternatives écartées** (support direct de la soutenance) | 2,5 j/h |
+| D3 | `docs/architecture/` (`hld.md`, `lld.md`) | infra | Schémas (réseau, flux OIDC, flux GitOps), rôle et responsabilité de chaque composant, **tableau des choix justifiés + alternatives écartées** (support direct de la soutenance) | 2,5 j/h |
 | D4 | `docs/gitops.md` | les deux | App-of-Apps, convention de branches, cycle commit → sync → health, procédure de rollback | 1,5 j/h |
 | D5 | `docs/security.md` | infra | Chaîne OIDC de bout en bout, configuration client par outil, cycle de vie Sealed Secrets (**dont sauvegarde/restauration de la clé privée**), **les deux chaînes de certification (ACME publique / CA interne) et leur périmètre**, politiques d'admission et leur test, matrice RBAC | 2,5 j/h |
 | D6 | `docs/operations.md` | infra | Runbooks : redémarrage après extinction nocturne, montée de version du cluster (`drain`/`upgrade`/`uncordon`), backup et **restauration vérifiée**, renouvellement des certificats, incidents fréquents | 2 j/h |

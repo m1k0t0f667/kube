@@ -1,7 +1,10 @@
-# Architecture — v1
+# Architecture — HLD (vue d'ensemble) — v1
 
 Schéma d'architecture du cluster, repris du manuel d'équipe (« Équipage Kube », section
 Architecture) et adapté aux arbitrages actés en J0 (KUB-66).
+
+Ce document montre les composants et leurs liens. Les adresses, ports, versions, volumes
+et l'ordre de déploiement sont dans le [LLD](lld.md).
 
 > **Statut : v1, à valider par les cinq en réunion.** Toute décision qui change ici
 > passe d'abord par un ADR dans `docs/adr/`.
@@ -128,7 +131,7 @@ flowchart LR
   créer dynamiquement.
 - **local-path** pour les métriques et les logs. Ces composants font des `fsync` en continu
   sur de petits blocs, ce qui risque de corrompre leurs données sur NFS (voir §6 de
-  `contraintes-et-outillage.md`).
+  [contraintes-et-outillage.md](../contraintes-et-outillage.md)).
 - **etcd** reste sur le disque de `node-1`, jamais sur le réseau.
 
 ---
