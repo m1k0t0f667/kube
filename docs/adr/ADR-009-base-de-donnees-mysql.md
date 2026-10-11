@@ -15,7 +15,8 @@ Le sujet demande de « use the official chart for the database (helm) », avec u
   InnoDB (3 instances + MySQL Router).
 - Le chart Bitnami MySQL est la référence de fait de l'écosystème Helm. Mais depuis 2025,
   Bitnami a déplacé ses images gratuites vers le dépôt `bitnamilegacy`, qui **ne reçoit
-  plus de mises à jour** ; les images maintenues sont devenues payantes.
+  plus de mises à jour** (dernière publication le 13/08/2025, MySQL 8.4.5) ; les images
+  maintenues sont devenues payantes. `bitnami/mysql` n'a plus de tag `latest`.
 - Nœuds arm64 (C4), 4 Go de RAM chacun.
 - La base est sur EFS, donc sur NFS (ADR-008) : InnoDB y fonctionne avec des limites.
 
@@ -30,10 +31,10 @@ Le sujet demande de « use the official chart for the database (helm) », avec u
 
 ## Décision
 
-**Chart Bitnami MySQL**, architecture **`standalone`** (une seule instance), MySQL 8.4 :
+**Chart Bitnami MySQL**, architecture **`standalone`** (une seule instance), MySQL 8.4.5 :
 
-- Image `bitnamilegacy/mysql`, **épinglée par digest** pour garantir l'arm64 et la
-  reproductibilité.
+- Image `bitnamilegacy/mysql:8.4.5-debian-12-r0`, **épinglée par digest** pour garantir
+  l'arm64 et la reproductibilité.
 - Persistance sur le PV statique `efs-sc` `fs-038bf0f49474a6a1d:/mysql`, `Retain`, UID 1001
   (ADR-008). `innodb_flush_method` laissé par défaut (pas d'`O_DIRECT` sur NFS).
 - Placement sur node-2 ou node-3, jamais sur node-1 (ADR-003).
@@ -45,12 +46,12 @@ Le sujet demande de « use the official chart for the database (helm) », avec u
 
 ## Validation (à faire dans J0-07 avant le premier déploiement)
 
-1. `docker manifest inspect bitnamilegacy/mysql:<tag>` montre une variante `arm64`.
+1. ✅ **Fait le 11/10/2026** : `bitnamilegacy/mysql:8.4.5-debian-12-r0` existe en `arm64`
+   ([relevé](../images-arm64.md)).
 2. Le pod démarre sur le PV EFS, et un `mysqlslap` court passe sans erreur de verrouillage.
 3. Les données survivent à `kubectl delete pod` (J1-10).
 
-**Repli si (1) échoue :** même chart, image `bitnamilegacy` la plus récente disponible en
-arm64. **Si (2) échoue :** PV `local-path` sur node-2, avec le `mysqldump` vers EFS comme
+**Si (2) échoue :** PV `local-path` sur node-2, avec le `mysqldump` vers EFS comme
 garantie de durabilité ; on reste conforme à l'esprit du sujet (données sur EFS), écart à
 documenter.
 
