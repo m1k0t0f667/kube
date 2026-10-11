@@ -131,8 +131,6 @@ rôle Ansible `efs`, qui remplace les Access Points que le compte ne peut pas cr
 
 **Écarts à traiter** (relevés pendant la rédaction, non corrigés) :
 
-- Le rôle `efs` crée encore `harbor/` et `harbor-pg/`, alors que le registry retenu est
-  GHCR.
 - Le répertoire `mysql/` suppose MySQL, alors que le moteur de base n'est pas tranché
   (KUB-61).
 

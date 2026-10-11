@@ -69,14 +69,14 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 | 8 | **[I]** Logging | **Loki** (mono-binaire, mode `filesystem`) + **Grafana Alloy** comme collecteur | Loki imposé. Alloy remplace Promtail (déprécié fin 2025) et unifie logs + métriques. Datasource Grafana partagée avec Prometheus → corrélation métrique/log en démo. |
 | 9 | **[J]** Opérateur GitOps | **ArgoCD** | UI de réconciliation lisible → indispensable pour *montrer* le sync et le health en soutenance (le sujet l'exige explicitement). FluxCD est excellent mais sans UI, la démo se fait en `kubectl` et convainc moins. Bonus : ArgoCD parle OIDC nativement (dex embarqué, qu'on remplacera par notre dex). |
 | 10 | **[I]** Manifestes en Kustomize | `base/` + `overlays/` par composant, pattern **App-of-Apps** ArgoCD | Imposé. L'App-of-Apps rend le cluster reconstructible en un `kubectl apply` unique après le bootstrap Ansible. |
-| 11 | **[I]** Registry privé authentifié | **Harbor** si la RAM le permet, sinon **Zot** | **Exigence imposée, pas une option** (« publish your application image to a private authenticated registry »). Harbor apporte l'auth OIDC, les robot accounts pour le CI et **Trivy intégré** → le bonus « sécurité des artefacts Helm » devient gratuit. Contrepartie : ~8 pods, 1,5-2 Go. Zot = 1 pod, ~100 Mo, auth OCI, mais ni scan ni OIDC. `distribution/registry` + `htpasswd` = repli minimal, au prix d'une entorse à « l'OIDC couvre tous les outils ». **Arbitrage à faire tôt, selon la taille des instances** (cf. risque 8). Pull par `imagePullSecrets`. |
+| 11 | **[I]** Registry privé authentifié | **GHCR** (GitHub Container Registry), paquets privés | **Exigence imposée, pas une option** (« publish your application image to a private authenticated registry »). Le sujet exige un registry privé et authentifié, pas un registry hébergé dans le cluster. GHCR ne consomme ni RAM ni stockage EFS. Push par le `GITHUB_TOKEN` de GitHub Actions, pull par `imagePullSecrets` avec un token `read:packages`. **Point d'attention** : ce token est lié à un compte GitHub, il faut documenter qui le renouvelle. Harbor écarté : ~2 Go de RAM, 4 volumes et un OIDC de plus à câbler. Le scan d'images se fait avec Trivy dans la CI. |
 
 ### 2.3 Identité et sécurité
 
 | # | Exigence | Solution retenue | Justification |
 |---|---|---|---|
 | 12 | **[I]** OIDC via dex, **[J]** IdP auto-hébergé | **Keycloak** (IdP, source de vérité) ← fédéré par **dex** (broker OIDC unique) | Le sujet impose dex et laisse l'IdP libre. Keycloak est le seul IdP auto-hébergeable réellement complet (realms, groupes, mappers de claims, fédération, MFA) et c'est celui qui est cité. Architecture : Keycloak détient les users/groupes → dex fédère Keycloak en `connector: oidc` → dex est le **seul** `--oidc-issuer-url` déclaré à l'API server et le seul client configuré dans chaque outil. Un seul point d'intégration à maintenir. |
-| 13 | **[I]** Couverture OIDC de *tous* les outils | ArgoCD (`oidc.config`), Grafana (`auth.generic_oauth`), Headlamp (flags OIDC), Harbor (auth OIDC), `kubectl` (`kubelogin` / `kubectl oidc-login`), **API server** (`--oidc-issuer-url`, `--oidc-client-id`, `--oidc-groups-claim`) | C'est le point le plus noté et le plus long. L'API server est le plus délicat (voir §5, risque 1). Mapper les groupes Keycloak → `ClusterRoleBinding` (ex. `kube-admins`, `kube-devs`) couvre aussi le bonus RBAC. |
+| 13 | **[I]** Couverture OIDC de *tous* les outils | ArgoCD (`oidc.config`), Grafana (`auth.generic_oauth`), Headlamp (flags OIDC), `kubectl` (`kubelogin` / `kubectl oidc-login`), **API server** (`--oidc-issuer-url`, `--oidc-client-id`, `--oidc-groups-claim`) | C'est le point le plus noté et le plus long. L'API server est le plus délicat (voir §5, risque 1). Mapper les groupes Keycloak → `ClusterRoleBinding` (ex. `kube-admins`, `kube-devs`) couvre aussi le bonus RBAC. |
 | 14 | **[I]** Admission policy native (CEL) | `ValidatingAdmissionPolicy` + `ValidatingAdmissionPolicyBinding` — 3 politiques : (a) `requests`/`limits` CPU+RAM obligatoires, (b) labels `app.kubernetes.io/*` obligatoires, (c) images issues du registry privé uniquement | Imposé « native » : **ni Kyverno ni Gatekeeper**. GA depuis k8s 1.30. Se teste en 10 s en démo (`kubectl apply` d'un pod sans limits → refus). Prévoir des `matchConditions` excluant `kube-system` pour ne pas casser le cluster. |
 | 15 | **[I]** Aucun secret en clair dans Git | **Sealed Secrets** (Bitnami) | External Secrets supposerait un backend externe (Vault/AWS SM) → une brique de plus à opérer et à sécuriser. Sealed Secrets chiffre avec une clé publique, le contrôleur déchiffre dans le cluster : le `SealedSecret` est commitable sans risque. **Attention** : sauvegarder la clé privée du contrôleur, sinon un cluster reconstruit ne sait plus déchiffrer (à traiter dans le playbook Ansible). |
 | 16 | **[I]** Secrets vs ConfigMaps | Secret : `APP_KEY`, `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, credentials registry, client secrets OIDC. ConfigMap : `APP_ENV`, `APP_DEBUG`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `LOG_CHANNEL` | Découpage direct depuis le `docker-compose.yaml` existant. |
@@ -108,7 +108,7 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 | Bonus | Solution | Coût |
 |---|---|---|
 | Multi-tenancy Prometheus/Loki | `kube-rbac-proxy` en sidecar | 2 j/h |
-| Sécurité des artefacts Helm | Trivy (déjà dans Harbor) + `helm lint` en CI | 1 j/h (quasi offert) |
+| Sécurité des artefacts Helm | Trivy + `helm lint` en CI | 1 j/h |
 | RBAC fin | Groupes Keycloak → Roles/ClusterRoles (dev = lecture seule sur son namespace) | 2 j/h |
 | Renforcement réseau | NetworkPolicies Cilium (deny-all + allow explicite) | 2 j/h |
 | Images légères | Build multi-stage (§1.4) | 1,5 j/h |
@@ -147,12 +147,12 @@ Workloads
 ─────────
  identité      Keycloak ──fédération──▶ dex ──OIDC──▶ apiserver, kubectl,
                                                       ArgoCD, Grafana,
-                                                      Headlamp, Harbor
+                                                      Headlamp
  gitops        ArgoCD ──▶ repo kube-infra (kustomize)
                       └─▶ repo kube-app   (kustomize → chart Helm)
  observabilité Prometheus · Alertmanager · Grafana · Loki · Alloy
  sécurité      cert-manager · Sealed Secrets · ValidatingAdmissionPolicy
- registry      Harbor (images applicatives, pull par imagePullSecrets)
+ registry      GHCR privé, hors cluster (pull par imagePullSecrets)
  application   Deployment app ×3 (anti-affinité) · Service · Ingress TLS
                MySQL (chart Bitnami) · PVC EFS · CronJob mysqldump
 ```
@@ -181,13 +181,12 @@ kube-infra/                          kube-app/
 ├── components/                      │   ├── base/
 │   ├── traefik/                     │   └── overlays/{staging,prod}/
 │   ├── cert-manager/                ├── .github/workflows/
-│   ├── argocd/                      │   └── build-push.yml   # build → Harbor → bump tag
+│   ├── argocd/                      │   └── build-push.yml   # build → GHCR → bump tag
 │   ├── keycloak/                    └── docs/
 │   ├── dex/
 │   ├── kube-prometheus-stack/
 │   ├── loki/
 │   ├── headlamp/
-│   ├── harbor/
 │   ├── sealed-secrets/
 │   ├── efs-csi/
 │   └── admission-policies/
@@ -237,7 +236,7 @@ c'est le poste qui saute systématiquement sous pression, et c'est un poste not�
 | 5 | **VAP trop stricte** bloquant les composants système | Cluster inutilisable | `matchConditions` excluant les namespaces système ; déployer d'abord en `validationActions: [Warn]`, passer en `Deny` après observation. |
 | 6 | **Perte de la clé Sealed Secrets** lors d'une reconstruction | Tous les secrets illisibles | Export de la clé dans le playbook, restauration automatique au bootstrap. Procédure dans D5. |
 | 7 | **Sous-estimation de la couverture OIDC** (6 intégrations distinctes) | Poste le plus noté, le plus long | 6 j/h budgétés, à attaquer en semaine 2-3, pas en dernier. |
-| 8 | **Budget RAM des instances insuffisant** pour l'ensemble des composants | Éviction de pods, cluster instable, arbitrages en urgence | **À vérifier dès le premier jour.** Ordre de grandeur : Prometheus ~2 Go, Harbor ~2 Go, Keycloak ~1 Go, app + MySQL ~1 Go, ArgoCD ~500 Mo, Loki ~500 Mo, divers ~500 Mo → **~7 Go de workloads**. Sur 3× `t3.medium` (12 Go bruts, ~9 utilisables après système et kubelet) cela passe, mais sans marge. En dessous, remplacer Harbor par Zot (#11) et Prometheus par VictoriaMetrics. |
+| 8 | **Budget RAM des instances insuffisant** pour l'ensemble des composants | Éviction de pods, cluster instable, arbitrages en urgence | **À vérifier dès le premier jour.** Ordre de grandeur : Prometheus ~2 Go, Keycloak ~1 Go, app + MySQL ~1 Go, ArgoCD ~500 Mo, Loki ~500 Mo, divers ~500 Mo → **~5,5 Go de workloads**. Sur 3× `t3.medium` (12 Go bruts, ~9 utilisables après système et kubelet) cela passe, mais sans marge. En dessous, remplacer Prometheus par VictoriaMetrics. Le registry, sur GHCR, ne consomme rien. |
 
 ---
 
@@ -251,7 +250,7 @@ c'est le poste qui saute systématiquement sous pression, et c'est un poste not�
 | 3 | ArgoCD + repo infra + App-of-Apps | 4 j/h | Le cluster se pilote par commit |
 | 4 | **Keycloak + dex + couverture OIDC complète** | 10 j/h | `kubectl` et tous les outils authentifient via Keycloak |
 | 5 | Observabilité (Prometheus, Grafana, Loki, alertes) | 6,5 j/h | Dashboards + une alerte qui se déclenche |
-| 6 | Harbor, Sealed Secrets, VAP, EFS CSI | 9 j/h | Pipeline d'image privée + secrets chiffrés + admission active |
+| 6 | GHCR, Sealed Secrets, VAP, EFS CSI | 9 j/h | Pipeline d'image privée + secrets chiffrés + admission active |
 | 7 | Chart Helm de l'app, MySQL, repo GitOps app | 10 j/h | App en ligne, HTTPS, 3 replicas anti-affinés |
 | 8 | Bonnes pratiques, CronJob backup, rollout progressif, version fautive | 7,5 j/h | Démo de rollout sûr rejouable |
 | 9 | Documentation (§4) | 16 j/h | 7 documents livrés |
@@ -297,13 +296,13 @@ déjà pratiqué Kubernetes.
 | Traefik + hostPort + NodePort + sslip.io | 2 |
 | cert-manager + Let's Encrypt (HTTP-01 via hostPort) | 3 |
 | PKI interne : `ClusterIssuer` CA + trust-manager + TLS intra-cluster | 1,5 |
-| Harbor + imagePullSecrets + push d'image | 3 |
+| GHCR + imagePullSecrets + push d'image | 3 |
 | ArgoCD + repo infra kustomize + App-of-Apps | 4 |
 | Headlamp + intégration OIDC | 2 |
 | kube-prometheus-stack + dashboards + règles d'alerte | 4 |
 | Loki + Alloy + datasource Grafana | 2,5 |
 | Keycloak (déploiement, persistance, realm, groupes) | 4 |
-| **dex + câblage OIDC : apiserver, kubectl, ArgoCD, Grafana, Headlamp, Harbor** | **6** |
+| **dex + câblage OIDC : apiserver, kubectl, ArgoCD, Grafana, Headlamp** | **6** |
 | Sealed Secrets + migration de tous les secrets | 2 |
 | ValidatingAdmissionPolicy (3 politiques + tests) | 2 |
 | EFS CSI driver + StorageClass + PV/PVC | 2 |

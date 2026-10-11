@@ -97,7 +97,7 @@ Référencé sur la numérotation du README §2.
 | 8 | Loki + Alloy | **Stockage** | Idem, chunks en local-path (§6). `logs:*` AWS refusé : pas de repli CloudWatch, Loki est la seule source de logs |
 | 9 | ArgoCD | Aucun | Egress Internet OK vers GitHub |
 | 10 | Kustomize / App-of-Apps | Aucun | — |
-| 11 | Registry privé | **Stockage + RAM** | Harbor = 4 PVC (blobs, Postgres, Redis, Trivy) + ~2 Go RAM. **Arbitrer tôt** (§6) |
+| 11 | Registry privé | Aucun | **GHCR**, hors cluster : ni RAM ni stockage consommés. Push par `GITHUB_TOKEN`, pull par `imagePullSecrets` (token `read:packages` lié à un compte GitHub, à renouveler) |
 | 12-13 | OIDC dex + Keycloak | **Moyen** (C2) | `kubectl` + `kubelogin` depuis le poste de dev **ne marchera pas** : le 6443 est injoignable. La démo OIDC `kubectl` se fait **depuis node-1**. À répéter, c'est un point noté |
 | 14 | ValidatingAdmissionPolicy | Aucun | Natif k8s |
 | 15 | Sealed Secrets | **Sauvegarde** | La clé privée se sauvegarde sur **EFS** (`/mnt/efs/bootstrap/`), qui survit à la destruction du cluster. Vrai bénéfice des droits dont tu disposes |
@@ -181,20 +181,21 @@ flowchart LR
         bump["commit du tag<br/>dans overlays/prod"]
     end
 
+    ghcr["<b>GHCR</b><br/>registry privé"]
+
     subgraph cluster["Cluster — node-1/2/3"]
-        harbor["<b>Harbor</b><br/>registry privé OIDC"]
         argo["<b>ArgoCD</b>"]
         wl["Deployment app ×3<br/>RollingUpdate maxUnavailable=0"]
     end
 
     dev -->|"push"| app
     app --> lint --> build --> scan --> push
-    push -->|"HTTPS 443<br/>harbor.15.224.60.53.sslip.io<br/>robot account"| harbor
+    push -->|"GITHUB_TOKEN<br/>packages: write"| ghcr
     push --> bump -->|"commit [skip ci]"| app
     infra -->|"pull"| argo
     app -->|"pull"| argo
     argo -->|"sync"| wl
-    harbor -->|"imagePullSecrets"| wl
+    ghcr -->|"imagePullSecrets"| wl
 ```
 
 ### Ce qui change à cause des droits
@@ -202,8 +203,8 @@ flowchart LR
 | Sujet | Décision |
 |---|---|
 | **Build arm64** | `docker/setup-qemu-action` + `buildx --platform linux/arm64`, ou runner `ubuntu-24.04-arm`. Le runner ARM est **3 à 5× plus rapide** que l'émulation QEMU sur un build `composer install` — à privilégier si le repo est public |
-| **Runner auto-hébergé ?** | **Non.** Il consommerait la RAM du cluster, déjà comptée à ~7 Go sur 9. Les runners GitHub atteignent Harbor par le 443 public : ça suffit |
-| **Accès CI → Harbor** | Robot account Harbor en secret GitHub. Aucun droit AWS requis (`ecr:*` est refusé de toute façon — et ECR serait hors sujet, le registry privé est imposé *dans* le cluster) |
+| **Runner auto-hébergé ?** | **Non.** Il consommerait la RAM du cluster, déjà comptée à ~7 Go sur 9. Les runners GitHub poussent directement vers GHCR : ça suffit |
+| **Accès CI → GHCR** | `GITHUB_TOKEN` du workflow avec la permission `packages: write` : aucun secret à créer. Aucun droit AWS requis (`ecr:*` est refusé de toute façon) |
 | **Pas de cache de build distant** | `s3:*` refusé → pas de cache buildx sur S3. Utiliser le cache GitHub Actions (`type=gha`) |
 | **Push du tag** | Le job qui `bump` le tag doit exclure le commit du déclenchement CI (`[skip ci]`), sinon boucle infinie |
 
@@ -269,9 +270,6 @@ StorageClass n'y change rien.
 |---|---|---|---|---|
 | **MySQL** (app) | InnoDB | ~2 Go | **EFS** (imposé) | Exigence #20. Mitigations ci-dessous |
 | **Backups `mysqldump`** | Dumps | ~1 Go | **EFS** | Usage idéal du NFS : écriture séquentielle, lecture rare, survit au cluster |
-| **Harbor — blobs** | Layers d'images | ~5 Go | **EFS** | Blob store : fichiers entiers, peu de verrouillage. NFS convient bien |
-| **Harbor — PostgreSQL** | Métadonnées | ~1 Go | **efs-sc** | Écritures rares. PostgreSQL est supporté sur NFS avec un montage `hard` — c'est le cas ici. La mobilité du pod vaut le coût |
-| **Harbor — Redis / Trivy** | Cache | ~1 Go | **local-path** | Reconstructible, aucune valeur à déplacer |
 | **Keycloak — PostgreSQL** | Users, realms, clients | ~500 Mo | **efs-sc** | Trafic très faible (quelques logins). **Ne pas laisser la base embarquée H2** : tu perds les realms au redémarrage |
 | **Prometheus** | TSDB | ~5 Go | **local-path** | La doc Prometheus **exclut nommément EFS** : « NFS filesystems (including AWS's EFS) are not supported », risque de corruption irrécupérable du WAL |
 | **Loki** | Chunks + index | ~2 Go | **local-path** | Même famille de problème |
@@ -285,14 +283,11 @@ flowchart TB
     subgraph sc2["StorageClass local-path — disque EBS 30 Go/nœud — NON extensible"]
         prom["Prometheus TSDB"]
         loki["Loki chunks"]
-        cache["Redis · Trivy cache"]
     end
 
     subgraph sc1["StorageClass efs-sc — PV statiques, aws-efs-csi-driver"]
         mysql["MySQL InnoDB<br/>/mnt/efs/mysql"]
         bkp["Backups mysqldump<br/>/mnt/efs/backups"]
-        blobs["Harbor blobs<br/>/mnt/efs/harbor"]
-        pg1["Harbor PostgreSQL"]
         pg2["Keycloak PostgreSQL"]
         key["Clé Sealed Secrets<br/>/mnt/efs/bootstrap"]
     end
@@ -345,7 +340,6 @@ Les droits UNIX que l'Access Point aurait posés doivent l'être **par Ansible**
   loop:
     - { d: mysql,     u: 1001 }   # bitnami/mysql tourne en UID 1001
     - { d: backups,   u: 1001 }
-    - { d: harbor,    u: 10000 }
     - { d: bootstrap, u: 0 }
   run_once: true
 ```
@@ -379,7 +373,7 @@ Le README assume déjà l'écart. Concrètement :
 
 ### Budget disque — à surveiller
 
-30 Go par nœud, **non extensible**. À déduire : OS (~3 Go) + images containerd (~8 Go avec Harbor, Keycloak, Prometheus). Il reste ~15 Go pour `local-path` par nœud. Donc :
+30 Go par nœud, **non extensible**. À déduire : OS (~3 Go) + images containerd (~8 Go avec Keycloak, Prometheus et les autres composants). Il reste ~15 Go pour `local-path` par nœud. Donc :
 
 - Prometheus : `retention: 7d` et `retentionSize: 4GB`
 - Loki : `retention_period: 168h`
@@ -451,7 +445,7 @@ coûté 2 Go pour protéger d'une panne dont le point d'entrée reste un SPOF. A
 d'API à l'appui, c'est une meilleure réponse qu'une HA à moitié faite.
 
 **Conséquence pratique** : node-1 étant irremplaçable, il garde etcd, l'apiserver et
-l'Ingress, et rien d'autre. Prometheus, Loki, Harbor et MySQL vont sur node-2 et node-3.
+l'Ingress, et rien d'autre. Prometheus, Loki et MySQL vont sur node-2 et node-3.
 
 ---
 
@@ -476,6 +470,6 @@ Explicitement **écartés** : Terraform (§1 C3), runner GitHub auto-hébergé (
 | Priorité | Question ouverte | Comment trancher |
 |---|---|---|
 | 1 | Le driver EFS CSI monte-t-il un PV statique ? | **Partiellement résolu** : l'API EFS est refusée aux deux principals, mais le montage n'en dépend pas et fonctionne déjà via le `fstab`. Reste à confirmer côté driver — sinon, options 2 et 3 du §6 |
-| 2 | Toutes les images (Harbor, Keycloak, Cilium, kube-prometheus-stack) existent-elles en arm64 ? | `docker manifest inspect <image> \| grep arm64` sur chaque chart avant de bâtir dessus |
+| 2 | Toutes les images (Keycloak, Cilium, kube-prometheus-stack) existent-elles en arm64 ? | `docker manifest inspect <image> \| grep arm64` sur chaque chart avant de bâtir dessus |
 | 3 | InnoDB tient-il sur EFS ? | `mysqlslap` en phase 1, pas en phase 8 |
-| 4 | Le budget RAM tient-il avec Harbor ? | `kubectl top nodes` après le déploiement d'Harbor. Sinon bascule Zot (#11) |
+| 4 | Le budget RAM tient-il ? | `kubectl top nodes` après le déploiement de chaque composant lourd |
