@@ -206,6 +206,10 @@ répartis sur les deux dépôts.
 > exigence, la manière de faire compatible. Il corrige trois points de ce README
 > (connexion Ansible, périmètre Terraform, type d'instance) et fixe la stratégie de
 > stockage des composants stateful. À lire avant D2, D3 et D6.
+>
+> **Décisions actées** : [`docs/adr/`](docs/adr/README.md) — une fiche par choix de stack,
+> à jour des arbitrages du 29/09/2026. Plusieurs choix de ce README ont changé depuis
+> (Traefik, VictoriaMetrics, GHCR, 2 réplicas) : **en cas de contradiction, l'ADR fait foi.**
 
 | # | Document | Dépôt | Contenu | Charge |
 |---|---|---|---|---|
