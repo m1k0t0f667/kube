@@ -83,7 +83,7 @@ flowchart LR
         p3["réplica 2<br/>node-3"]
     end
 
-    db["Base de données<br/>moteur à confirmer (J0-07)"]
+    db["MySQL 8.4<br/>chart Bitnami, standalone"]
     efs[("EFS<br/>PV statique")]
 
     nav --> sg

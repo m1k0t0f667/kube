@@ -22,7 +22,7 @@ du 29/09/2026. Les schémas qui en découlent sont dans [`docs/architecture/`](.
 | [006](ADR-006-exposition-hostport.md) | Exposition en hostPort 80/443 + sslip.io (écart au sujet) | Exposition | Acceptée, à confirmer au FU |
 | [007](ADR-007-tls-letsencrypt-ca-interne.md) | TLS : Let's Encrypt HTTP-01 + CA interne | Sécurité | Acceptée |
 | [008](ADR-008-stockage-efs-local-path.md) | Stockage : EFS CSI en PV statiques + local-path | Stockage | Acceptée |
-| [009](ADR-009-base-de-donnees-mysql.md) | Base de données : chart Bitnami MySQL, standalone, sur EFS | Application | Acceptée, sous condition J0-07 |
+| [009](ADR-009-base-de-donnees-mysql.md) | Base de données : chart Bitnami MySQL, standalone, sur EFS | Application | Acceptée, testée (J0-07) |
 | [010](ADR-010-gitops-argocd.md) | GitOps : ArgoCD, deux dépôts, App-of-Apps | GitOps | Acceptée |
 | [011](ADR-011-metriques-victoriametrics.md) | Métriques et alertes : VictoriaMetrics + Grafana | Observabilité | Acceptée |
 | [012](ADR-012-logs-loki-alloy.md) | Logs : Loki + Alloy | Observabilité | Acceptée |

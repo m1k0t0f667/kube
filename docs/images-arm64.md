@@ -43,8 +43,28 @@ Aucun KO, donc aucune alternative à prévoir pour l'architecture.
 - Pour comparaison, l'image officielle `mysql:8.4` (arm64 aussi) a été mise à jour le
   29/09/2026.
 
-Décision et repli : [ADR-009](adr/ADR-009-base-de-donnees-mysql.md). Il reste à tester le
-démarrage de MySQL sur l'EFS (même ticket).
+Décision : [ADR-009](adr/ADR-009-base-de-donnees-mysql.md).
+
+### Test de MySQL sur l'EFS (2026-10-11)
+
+Pod temporaire `bitnamilegacy/mysql:8.4.5-debian-12-r0` sur node-2, données dans
+`/mnt/efs/mysql-test` monté en `hostPath`. Le pilote EFS CSI n'est pas encore installé,
+mais le stockage testé est le même : l'EFS en NFS+TLS, monté par le `fstab`.
+
+| Étape | Résultat |
+|---|---|
+| Initialisation de la base sur l'EFS, puis `mysqladmin ping` | ✅ `mysqld is alive` |
+| Charge : `mysqlslap`, 10 clients, 500 requêtes, 3 itérations | ✅ 1,35 s en moyenne (min 1,31, max 1,39), aucune erreur de verrouillage |
+| Écriture d'une ligne, suppression du pod, recréation, relecture | ✅ la ligne est toujours là |
+| Nettoyage | Pod et répertoire de test supprimés |
+
+`mysqlslap` doit être lancé avec `--no-defaults -h127.0.0.1 --protocol=TCP` : le
+`my.cnf` de l'image Bitnami contient une option `default_character_set` que cet outil
+refuse. Ce n'est pas lié à l'EFS.
+
+**Conclusion : InnoDB fonctionne sur l'EFS.** Le repli `local-path` de l'ADR-009 n'est pas
+nécessaire. La preuve de persistance définitive, avec le vrai PVC, reste à faire dans J1-10
+(KUB-35).
 
 ## Refaire la vérification
 

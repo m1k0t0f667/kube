@@ -1,6 +1,6 @@
 # ADR-009 — Base de données : chart Bitnami MySQL, standalone, sur EFS
 
-- **Statut :** Acceptée, sous condition des vérifications de J0-07 (voir « Validation »)
+- **Statut :** Acceptée (validée par les tests de J0-07, voir « Validation »)
 - **Date :** 2026-10-11
 - **Tickets :** KUB-66 (J0-12), KUB-61 (J0-07) — arbitrage A8
 
@@ -44,14 +44,16 @@ Le sujet demande de « use the official chart for the database (helm) », avec u
 - Sauvegarde : CronJob `mysqldump` quotidien vers `efs:/backups`, qui sert aussi de CronJob
   « besoin opérationnel réel » demandé par le sujet.
 
-## Validation (à faire dans J0-07 avant le premier déploiement)
+## Validation (J0-07)
 
 1. ✅ **Fait le 11/10/2026** : `bitnamilegacy/mysql:8.4.5-debian-12-r0` existe en `arm64`
    ([relevé](../images-arm64.md)).
-2. Le pod démarre sur le PV EFS, et un `mysqlslap` court passe sans erreur de verrouillage.
-3. Les données survivent à `kubectl delete pod` (J1-10).
+2. ✅ **Fait le 11/10/2026** : MySQL démarre sur l'EFS, et `mysqlslap` (10 clients,
+   500 requêtes) passe en 1,35 s sans erreur de verrouillage.
+3. ✅ **Fait le 11/10/2026** : une ligne écrite survit à la suppression et à la recréation
+   du pod. À refaire avec le vrai PVC dans J1-10 (KUB-35).
 
-**Si (2) échoue :** PV `local-path` sur node-2, avec le `mysqldump` vers EFS comme
+**Repli, non nécessaire à ce jour :** PV `local-path` sur node-2, avec le `mysqldump` vers EFS comme
 garantie de durabilité ; on reste conforme à l'esprit du sujet (données sur EFS), écart à
 documenter.
 
