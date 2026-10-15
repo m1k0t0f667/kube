@@ -88,7 +88,7 @@ définir dans leurs tickets.
 | Headlamp | dashboard | — | prévu |
 | Sealed Secrets | secrets dans Git | clé sauvegardée sur EFS | prévu |
 | ValidatingAdmissionPolicy | contrôle d'admission | — | prévu |
-| Application + base de données | charge de travail | EFS | prévu, moteur de base **à définir** (J0-07, KUB-61) |
+| Application + MySQL 8.4 (chart Bitnami, standalone) | charge de travail | EFS | prévu (ADR-009) |
 
 ## 5. Exposition
 
@@ -120,7 +120,7 @@ Le passage au serveur Let's Encrypt de production se fait dans `acme_server` de
 | Données | Support | Emplacement | Statut |
 |---|---|---|---|
 | etcd | disque local de `node-1` | `/var/lib/etcd` | en place |
-| Base de données de l'app | EFS, PV statique | `/mnt/efs/mysql` (UID 1001) | répertoire en place, moteur à définir |
+| Base de données de l'app (MySQL) | EFS, PV statique | `/mnt/efs/mysql` (UID 1001) | répertoire en place |
 | Sauvegardes | EFS, PV statique | `/mnt/efs/backups` (UID 1001) | répertoire en place |
 | Base de Keycloak | EFS, PV statique | `/mnt/efs/keycloak-pg` (UID 1001) | répertoire en place |
 | Clé Sealed Secrets, kubeconfig de secours | EFS | `/mnt/efs/bootstrap` (root, 0700) | répertoire en place |
@@ -129,10 +129,8 @@ Le passage au serveur Let's Encrypt de production se fait dans `acme_server` de
 EFS : `fs-038bf0f49474a6a1d`. Les répertoires sont créés et leurs droits posés par le
 rôle Ansible `efs`, qui remplace les Access Points que le compte ne peut pas créer.
 
-**Écarts à traiter** (relevés pendant la rédaction, non corrigés) :
-
-- Le répertoire `mysql/` suppose MySQL, alors que le moteur de base n'est pas tranché
-  (KUB-61).
+MySQL sur EFS testé le 11/10/2026 (KUB-61) : démarrage, charge et persistance après
+suppression du pod OK. Détail dans [images-arm64.md](../images-arm64.md).
 
 ## 8. Ordre de déploiement
 

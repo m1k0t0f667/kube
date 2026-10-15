@@ -93,7 +93,7 @@ Référencé sur la numérotation du README §2.
 | 5 | HTTPS Let's Encrypt HTTP-01 | Aucun | Port 80 déjà ouvert. Le challenge passe |
 | 5b | PKI interne | Aucun | 100 % in-cluster |
 | 6 | Dashboard Headlamp | **Moyen** (C2) | Aucun accès direct au 6443 → exposition **par l'Ingress obligatoire**, ce n'est plus un confort |
-| 7 | kube-prometheus-stack | **Stockage** | TSDB Prometheus **pas sur EFS** (§6) |
+| 7 | VictoriaMetrics + Grafana | **Stockage** | Base de séries temporelles **pas sur EFS** (§6), en local-path |
 | 8 | Loki + Alloy | **Stockage** | Idem, chunks en local-path (§6). `logs:*` AWS refusé : pas de repli CloudWatch, Loki est la seule source de logs |
 | 9 | ArgoCD | Aucun | Egress Internet OK vers GitHub |
 | 10 | Kustomize / App-of-Apps | Aucun | — |
@@ -185,7 +185,7 @@ flowchart LR
 
     subgraph cluster["Cluster — node-1/2/3"]
         argo["<b>ArgoCD</b>"]
-        wl["Deployment app ×3<br/>RollingUpdate maxUnavailable=0"]
+        wl["Deployment app ×2<br/>RollingUpdate maxUnavailable=0"]
     end
 
     dev -->|"push"| app
@@ -260,7 +260,7 @@ c'est le bon choix. Ce que `efs-sc` apporte réellement : la **durabilité** (EF
 multi-AZ, un volume EBS ne l'est que dans une AZ) et le **temps de reprise**.
 
 **La redondance que le sujet note est ailleurs** : exigences #19, #26 et #27 — l'application
-à 3 replicas avec anti-affinité, le rolling update sans coupure, la version fautive qui ne
+à 2 replicas avec anti-affinité, le rolling update sans coupure, la version fautive qui ne
 prend pas la main. L'application est stateless, elle n'a aucun PVC. Le choix de
 StorageClass n'y change rien.
 
@@ -470,6 +470,6 @@ Explicitement **écartés** : Terraform (§1 C3), runner GitHub auto-hébergé (
 | Priorité | Question ouverte | Comment trancher |
 |---|---|---|
 | 1 | Le driver EFS CSI monte-t-il un PV statique ? | **Partiellement résolu** : l'API EFS est refusée aux deux principals, mais le montage n'en dépend pas et fonctionne déjà via le `fstab`. Reste à confirmer côté driver — sinon, options 2 et 3 du §6 |
-| 2 | Toutes les images (Keycloak, Cilium, kube-prometheus-stack) existent-elles en arm64 ? | `docker manifest inspect <image> \| grep arm64` sur chaque chart avant de bâtir dessus |
-| 3 | InnoDB tient-il sur EFS ? | `mysqlslap` en phase 1, pas en phase 8 |
+| 2 | Toutes les images existent-elles en arm64 ? | **Résolu le 11/10/2026** : oui, toutes ([images-arm64.md](images-arm64.md)) |
+| 3 | InnoDB tient-il sur EFS ? | **Résolu le 11/10/2026** : oui, démarrage, `mysqlslap` et persistance OK ([images-arm64.md](images-arm64.md)) |
 | 4 | Le budget RAM tient-il ? | `kubectl top nodes` après le déploiement de chaque composant lourd |

@@ -50,12 +50,12 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 | # | Exigence | Solution retenue | Justification |
 |---|---|---|---|
 | 1 | **[I]** Provisionner le cluster avec Ansible, reconstructible | `kubeadm` piloté par rôles Ansible (`common`, `containerd`, `control-plane`, `worker`, `cni`) + `reset.yml` de teardown | `kubeadm` est l'outil de référence : il *montre* les composants (etcd, apiserver, kubelet), ce que la soutenance exige (« responsabilité de chaque composant »). k3s/RKE2 masqueraient tout et rendraient le flag OIDC de l'apiserver moins démonstratif. Inventaire statique + connexion via SSM. |
-| 1b | *Terraform en complément ?* | **Écarté** | **L'infrastructure est fournie, pas provisionnée par nous** : VM, EFS, VPC et IAM Identity Center sont livrés par l'école — Terraform déclare ce qu'on crée, et il n'y a presque rien à créer. Le sujet impose Ansible et rien d'autre : Terraform ne coche aucune case notée, ajoute un `tfstate` à héberger, et risque d'échouer au `plan` faute de droits IAM en lecture sur un compte géré par l'école. Coût ~3-4 j/h pour zéro point. **Seul périmètre légitime** — Access Points EFS et rôle IAM du driver EFS CSI, soit 3 ressources : une tâche Ansible avec l'`aws` CLI suffit, sans state à gérer. Pour démontrer de la maturité IaC, le gain noté est ailleurs : l'idempotence réelle des playbooks et un teardown/rebuild propre (« torn down and rebuilt reproducibly »). |
+| 1b | *Terraform en complément ?* | **Écarté** | **L'infrastructure est fournie, pas provisionnée par nous** : VM, EFS, VPC et IAM Identity Center sont livrés par l'école — Terraform déclare ce qu'on crée, et il n'y a presque rien à créer. Le sujet impose Ansible et rien d'autre : Terraform ne coche aucune case notée, ajoute un `tfstate` à héberger (sans S3), et `terraform apply` échoue sur 100 % des ressources faute de droits de création (testé, [ADR-001](docs/adr/ADR-001-pas-de-terraform.md)). Coût ~3-4 j/h pour zéro point. **Seul périmètre légitime** — Access Points EFS et rôle IAM du driver EFS CSI, soit 3 ressources : une tâche Ansible avec l'`aws` CLI suffit, sans state à gérer. Pour démontrer de la maturité IaC, le gain noté est ailleurs : l'idempotence réelle des playbooks et un teardown/rebuild propre (« torn down and rebuilt reproducibly »). |
 | 2 | CNI | **Cilium** (ou Flannel si on veut le minimum) | Cilium apporte les NetworkPolicies eBPF utiles au bonus « renforcement réseau » et Hubble pour la démo. Flannel = repli si le temps manque. |
 | 3 | **[I]** Exposition Ingress ou Gateway API | **Traefik**, `DaemonSet` + `hostPort: 80/443` sur `kube-1`, plus un Service `NodePort` 30080/30443 | Le sujet impose NodePort/sslip.io : le NodePort est là, joignable depuis le VPC. **Piège** : le security group n'ouvre que 80/443 et Let's Encrypt HTTP-01 frappe le **port 80**, hors plage NodePort (30000-32767). `hostPort` sur le nœud à IP publique stable résout le problème sans load balancer. ingress-nginx écarté : fin de vie en mars 2026, plus de correctifs (CVE-2026-42945 « NGINX Rift », critique). Gateway API écarté : plus élégant mais l'écosystème cert-manager/OIDC y est moins mûr — risque non nécessaire. |
 | 4 | Résolution DNS | `sslip.io` — `app.<IP_PUBLIQUE_KUBE1>.sslip.io` | Imposé de fait, pas de DNS wildcard fourni. L'IP publique de `kube-1` survit aux extinctions nocturnes → certificats TLS valides d'un jour sur l'autre. |
 | 5 | **[I]** HTTPS partout | **cert-manager** + `ClusterIssuer` Let's Encrypt (HTTP-01), `Certificate` par Ingress | Imposé. Utiliser **staging** pendant tout le dev (quota prod = 50 certs/semaine/domaine, vite atteint en cluster jetable), bascule prod en fin de projet. |
-| 5b | **[J]** PKI interne (TLS intra-cluster) | Second `ClusterIssuer` de type **CA** (`SelfSigned` → CA racine → issuer) + **trust-manager** pour distribuer le bundle | **Deux issuers, deux périmètres.** `letsencrypt-prod` pour tout ce qui est exposé (le navigateur doit faire confiance, et l'apiserver doit valider l'issuer OIDC de dex sans qu'on lui injecte une CA maison). `internal-ca` pour tout ce qui ne sort jamais du cluster : TLS MySQL, webhooks, scraping Prometheus, mTLS. Bénéfice réel : **aucun quota ACME**, là où un cluster reconstruit souvent épuise vite les 50 certs/semaine (cf. risque 2). Attention au contresens : la rotation automatique n'est **pas** l'argument — cert-manager renouvelle déjà seul à 2/3 de la durée de vie. trust-manager évite de recopier le bundle CA à la main dans chaque namespace. |
+| 5b | **[J]** PKI interne (TLS intra-cluster) | Second `ClusterIssuer` de type **CA** (`SelfSigned` → CA racine → issuer) + **trust-manager** pour distribuer le bundle | **Deux issuers, deux périmètres.** `letsencrypt-prod` pour tout ce qui est exposé (le navigateur doit faire confiance, et l'apiserver doit valider l'issuer OIDC de dex sans qu'on lui injecte une CA maison). `internal-ca` pour tout ce qui ne sort jamais du cluster : TLS MySQL, webhooks, scraping des métriques, mTLS. Bénéfice réel : **aucun quota ACME**, là où un cluster reconstruit souvent épuise vite les 50 certs/semaine (cf. risque 2). Attention au contresens : la rotation automatique n'est **pas** l'argument — cert-manager renouvelle déjà seul à 2/3 de la durée de vie. trust-manager évite de recopier le bundle CA à la main dans chaque namespace. |
 | 5c | *Vault (moteur PKI) ?* | **Écarté** | La bonne réponse en production, un piège ici : un composant stateful de plus à opérer et sauvegarder, et surtout **à desceller (`unseal`) après chaque extinction nocturne** des VM. Le coût d'exploitation quotidien dépasse le gain. |
 | 5d | PKI du cluster lui-même | Générée par `kubeadm` (CA apiserver, CA etcd, front-proxy), validité 1 an, `kubeadm certs renew` | À ne pas confondre avec les deux issuers ci-dessus. Alimente directement le bonus « documentation de la montée de version ». |
 
@@ -65,8 +65,8 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 |---|---|---|---|
 | 6 | **[J]** Dashboard | **Headlamp** | Supporte nativement l'OIDC (`oidc-client-id`/`oidc-issuer-url` en flags) alors que kubernetes-dashboard impose un contournement par token. Le sujet demande que *tous* les outils soient couverts par l'OIDC : Headlamp fait gagner du temps. Extensible par plugins, UI moderne. |
 | — | *Rancher ?* | **Écarté** | Rancher est un *gestionnaire de clusters*, pas un dashboard : il embarque sa propre couche d'auth, son propre ingress, son propre modèle RBAC — qui entreraient en conflit frontal avec dex/Keycloak et l'admission native exigés. Coût RAM ~2-3 Go sur des VM de TP. À citer en soutenance comme alternative évaluée et rejetée pour périmètre. |
-| 7 | **[J]** Monitoring + alerting | **kube-prometheus-stack** (Prometheus Operator, Grafana, Alertmanager, node-exporter, kube-state-metrics) | Un seul chart couvre collecte + visualisation + alerting (les 3 verbes du sujet). CRDs `ServiceMonitor`/`PrometheusRule` = configuration déclarative, donc GitOps-compatible. VictoriaMetrics est plus sobre en RAM mais son écosystème d'alerting demande plus de câblage manuel. |
-| 8 | **[I]** Logging | **Loki** (mono-binaire, mode `filesystem`) + **Grafana Alloy** comme collecteur | Loki imposé. Alloy remplace Promtail (déprécié fin 2025) et unifie logs + métriques. Datasource Grafana partagée avec Prometheus → corrélation métrique/log en démo. |
+| 7 | **[J]** Monitoring + alerting | **victoria-metrics-k8s-stack** (VMSingle, VMAgent, VMAlert, Alertmanager, Grafana, node-exporter, kube-state-metrics) | Un seul chart couvre collecte + visualisation + alerting (les 3 verbes du sujet). Il reprend les CRDs `ServiceMonitor`/`PrometheusRule` : configuration déclarative, GitOps-compatible, requêtes PromQL compatibles. Retenu plutôt que kube-prometheus-stack pour la RAM : Prometheus seul pèse ~2 Go, sur des nœuds à 4 Go qui peuvent passer à 2 Go (arbitrage A4, [ADR-011](docs/adr/ADR-011-metriques-victoriametrics.md)). |
+| 8 | **[I]** Logging | **Loki** (mono-binaire, mode `filesystem`) + **Grafana Alloy** comme collecteur | Loki imposé. Alloy remplace Promtail (déprécié fin 2025) et unifie logs + métriques. Datasource Grafana partagée avec VictoriaMetrics → corrélation métrique/log en démo. |
 | 9 | **[J]** Opérateur GitOps | **ArgoCD** | UI de réconciliation lisible → indispensable pour *montrer* le sync et le health en soutenance (le sujet l'exige explicitement). FluxCD est excellent mais sans UI, la démo se fait en `kubectl` et convainc moins. Bonus : ArgoCD parle OIDC nativement (dex embarqué, qu'on remplacera par notre dex). |
 | 10 | **[I]** Manifestes en Kustomize | `base/` + `overlays/` par composant, pattern **App-of-Apps** ArgoCD | Imposé. L'App-of-Apps rend le cluster reconstructible en un `kubectl apply` unique après le bootstrap Ansible. |
 | 11 | **[I]** Registry privé authentifié | **GHCR** (GitHub Container Registry), paquets privés | **Exigence imposée, pas une option** (« publish your application image to a private authenticated registry »). Le sujet exige un registry privé et authentifié, pas un registry hébergé dans le cluster. GHCR ne consomme ni RAM ni stockage EFS. Push par le `GITHUB_TOKEN` de GitHub Actions, pull par `imagePullSecrets` avec un token `read:packages`. **Point d'attention** : ce token est lié à un compte GitHub, il faut documenter qui le renouvelle. Harbor écarté : ~2 Go de RAM, 4 volumes et un OIDC de plus à câbler. Le scan d'images se fait avec Trivy dans la CI. |
@@ -87,10 +87,10 @@ Légende : **[I]** = imposé par le sujet · **[J]** = choix libre à justifier 
 |---|---|---|---|
 | 17 | **[I]** Requests / limits | Valeurs dans `values.yaml` du chart + `LimitRange` par namespace, **rendues obligatoires par la VAP (#14)** | La politique d'admission transforme la bonne pratique en garantie. |
 | 18 | **[I]** Labels normalisés | `app.kubernetes.io/{name,instance,version,component,part-of,managed-by}` sur toutes les ressources, via `commonLabels` Kustomize et les helpers Helm | Recommandations officielles Kubernetes, contrôlées par la VAP. |
-| 19 | **[I]** Redondance + anti-affinité | `replicas: 3` sur l'app + `podAntiAffinity` `requiredDuringScheduling` sur `kubernetes.io/hostname` | `required` (et non `preferred`) pour *prouver* en démo que deux replicas ne peuvent pas atterrir sur le même nœud. 2 workers ⇒ plafonner à 2-3 replicas. |
-| 20 | **[I]** Stockage persistant sur EFS | **aws-efs-csi-driver** + `StorageClass` EFS + Access Point dédié, PVC pour MySQL | Imposé. **Réserve technique à assumer en soutenance** : EFS est du NFS, et MySQL/InnoDB sur NFS a des limites de verrouillage et des performances médiocres. Acceptable dans le cadre du TP (le sujet l'impose) ; à documenter comme écart volontaire vis-à-vis d'une prod réelle, où l'on utiliserait EBS/`local-path` + réplication. |
+| 19 | **[I]** Redondance + anti-affinité | `replicas: 2` sur l'app + `podAntiAffinity` `requiredDuringScheduling` sur `kubernetes.io/hostname` : un réplica sur node-2, un sur node-3 | `required` (et non `preferred`) pour *prouver* en démo que deux replicas ne peuvent pas atterrir sur le même nœud. Pas de 3ᵉ réplica : il atterrirait forcément sur node-1, qui ne garde qu'etcd, l'apiserver et l'ingress (arbitrage A3, [ADR-003](docs/adr/ADR-003-topologie-control-plane-unique.md)). |
+| 20 | **[I]** Stockage persistant sur EFS | **aws-efs-csi-driver** en **PV statiques** par sous-répertoire (Access Points impossibles à créer), PVC pour MySQL ; métriques et logs sur `local-path` ([ADR-008](docs/adr/ADR-008-stockage-efs-local-path.md)) | Imposé. **Réserve technique à assumer en soutenance** : EFS est du NFS, et MySQL/InnoDB sur NFS a des limites de verrouillage et des performances médiocres. Testé le 11/10/2026 : démarrage, charge et persistance OK ([relevé](docs/images-arm64.md)). Acceptable dans le cadre du TP (le sujet l'impose) ; à documenter comme écart volontaire vis-à-vis d'une prod réelle, où l'on utiliserait EBS/`local-path` + réplication. |
 | 21 | **[J]** Base de données | Chart officiel **Bitnami MySQL** (architecture `standalone`) | Le sujet impose « le chart officiel pour la base ». Standalone suffit : pas de réplication demandée, et 2 workers ne justifient pas un cluster MySQL. |
-| 22 | **[I]** CronJob à besoin réel | `mysqldump` quotidien → PVC EFS `backups/`, rétention 7 jours, **+ `PrometheusRule` alertant si le backup n'a pas tourné en 26 h** | Répond littéralement à « volume backup ». L'alerte associée relie le CronJob à la stack de monitoring et enrichit la démo. |
+| 22 | **[I]** CronJob à besoin réel | `mysqldump` quotidien → PVC EFS `backups/`, rétention 7 jours, **+ règle `PrometheusRule` (évaluée par VMAlert) alertant si le backup n'a pas tourné en 26 h** | Répond littéralement à « volume backup ». L'alerte associée relie le CronJob à la stack de monitoring et enrichit la démo. |
 | 23 | **[I]** Deux repos GitOps séparés | `kube-infra` (cluster, composants, observabilité, sécurité) et `kube-app` (application convertie) | Imposé. Deux `Application` ArgoCD distinctes, deux cycles de vie, deux jeux de droits. |
 
 ### 2.5 Démonstration
@@ -150,10 +150,10 @@ Workloads
                                                       Headlamp
  gitops        ArgoCD ──▶ repo kube-infra (kustomize)
                       └─▶ repo kube-app   (kustomize → chart Helm)
- observabilité Prometheus · Alertmanager · Grafana · Loki · Alloy
+ observabilité VictoriaMetrics · Alertmanager · Grafana · Loki · Alloy
  sécurité      cert-manager · Sealed Secrets · ValidatingAdmissionPolicy
  registry      GHCR privé, hors cluster (pull par imagePullSecrets)
- application   Deployment app ×3 (anti-affinité) · Service · Ingress TLS
+ application   Deployment app ×2 (anti-affinité) · Service · Ingress TLS
                MySQL (chart Bitnami) · PVC EFS · CronJob mysqldump
 ```
 
@@ -184,7 +184,7 @@ kube-infra/                          kube-app/
 │   ├── argocd/                      │   └── build-push.yml   # build → GHCR → bump tag
 │   ├── keycloak/                    └── docs/
 │   ├── dex/
-│   ├── kube-prometheus-stack/
+│   ├── victoria-metrics-stack/
 │   ├── loki/
 │   ├── headlamp/
 │   ├── sealed-secrets/
@@ -206,6 +206,10 @@ répartis sur les deux dépôts.
 > exigence, la manière de faire compatible. Il corrige trois points de ce README
 > (connexion Ansible, périmètre Terraform, type d'instance) et fixe la stratégie de
 > stockage des composants stateful. À lire avant D2, D3 et D6.
+>
+> **Décisions actées** : [`docs/adr/`](docs/adr/README.md) — une fiche par choix de stack,
+> à jour des arbitrages du 29/09/2026. Ce README a été aligné sur les ADR le 11/10/2026 :
+> **en cas de contradiction, l'ADR fait foi.**
 
 | # | Document | Dépôt | Contenu | Charge |
 |---|---|---|---|---|
@@ -232,11 +236,11 @@ c'est le poste qui saute systématiquement sous pression, et c'est un poste not�
 | 1 | **Démarrage circulaire de l'OIDC** : l'API server exige `--oidc-issuer-url` joignable en TLS valide, mais dex tourne *dans* le cluster derrière l'ingress et cert-manager | Bloquant, plusieurs jours perdus | Séquencer : cluster nu → ingress → cert-manager → certificat obtenu → Keycloak → dex → **puis** patch du manifeste statique de l'apiserver par Ansible et redémarrage. Garder en permanence un kubeconfig `cluster-admin` de secours hors OIDC. |
 | 2 | **Quota Let's Encrypt prod** (50 certs/domaine/semaine) épuisé par les reconstructions répétées | Perte du HTTPS en démo | `ClusterIssuer` staging pendant tout le développement ; bascule prod uniquement en fin de projet. |
 | 3 | **Extinction nocturne** des VM | Cluster cassé chaque matin | Rendre le redémarrage idempotent dès le début : `kubelet` et `containerd` en `enabled`, pas de dépendance aux IP publiques des workers, playbook `restart-check.yml`. Traité dans D6. |
-| 4 | **MySQL sur EFS/NFS** : verrouillage InnoDB et latence | Instabilité de la base | Access Point EFS avec UID/GID corrects, `innodb_flush_method` adapté, tests de charge tôt. Écart assumé et documenté (§2.4 #20). |
+| 4 | **MySQL sur EFS/NFS** : verrouillage InnoDB et latence | Instabilité de la base | PV statique EFS avec UID/GID posés par le rôle Ansible `efs`, `innodb_flush_method` laissé par défaut, tests de charge tôt (faits le 11/10/2026 : OK). Écart assumé et documenté (§2.4 #20). |
 | 5 | **VAP trop stricte** bloquant les composants système | Cluster inutilisable | `matchConditions` excluant les namespaces système ; déployer d'abord en `validationActions: [Warn]`, passer en `Deny` après observation. |
 | 6 | **Perte de la clé Sealed Secrets** lors d'une reconstruction | Tous les secrets illisibles | Export de la clé dans le playbook, restauration automatique au bootstrap. Procédure dans D5. |
 | 7 | **Sous-estimation de la couverture OIDC** (6 intégrations distinctes) | Poste le plus noté, le plus long | 6 j/h budgétés, à attaquer en semaine 2-3, pas en dernier. |
-| 8 | **Budget RAM des instances insuffisant** pour l'ensemble des composants | Éviction de pods, cluster instable, arbitrages en urgence | **À vérifier dès le premier jour.** Ordre de grandeur : Prometheus ~2 Go, Keycloak ~1 Go, app + MySQL ~1 Go, ArgoCD ~500 Mo, Loki ~500 Mo, divers ~500 Mo → **~5,5 Go de workloads**. Sur 3× `t3.medium` (12 Go bruts, ~9 utilisables après système et kubelet) cela passe, mais sans marge. En dessous, remplacer Prometheus par VictoriaMetrics. Le registry, sur GHCR, ne consomme rien. |
+| 8 | **Budget RAM des instances insuffisant** pour l'ensemble des composants | Éviction de pods, cluster instable, arbitrages en urgence | **À vérifier dès le premier jour.** Ordre de grandeur : VictoriaMetrics + Grafana ~0,6 Go, Keycloak ~1 Go, app + MySQL ~1 Go, ArgoCD ~500 Mo, Loki ~500 Mo, divers ~500 Mo → **~4 Go de workloads**. Sur 3× `t4g.medium` (12 Go bruts, ~9 utilisables après système et kubelet) cela laisse de la marge, ce qui a motivé le choix de VictoriaMetrics plutôt que Prometheus (~2 Go). Si l'école bascule sur des instances à 2 Go, il faudra de nouveaux arbitrages. Le registry, sur GHCR, ne consomme rien. |
 
 ---
 
@@ -249,9 +253,9 @@ c'est le poste qui saute systématiquement sous pression, et c'est un poste not�
 | 2 | Ingress + cert-manager + sslip.io + HTTPS | 5 j/h | Une URL publique en HTTPS valide |
 | 3 | ArgoCD + repo infra + App-of-Apps | 4 j/h | Le cluster se pilote par commit |
 | 4 | **Keycloak + dex + couverture OIDC complète** | 10 j/h | `kubectl` et tous les outils authentifient via Keycloak |
-| 5 | Observabilité (Prometheus, Grafana, Loki, alertes) | 6,5 j/h | Dashboards + une alerte qui se déclenche |
+| 5 | Observabilité (VictoriaMetrics, Grafana, Loki, alertes) | 6,5 j/h | Dashboards + une alerte qui se déclenche |
 | 6 | GHCR, Sealed Secrets, VAP, EFS CSI | 9 j/h | Pipeline d'image privée + secrets chiffrés + admission active |
-| 7 | Chart Helm de l'app, MySQL, repo GitOps app | 10 j/h | App en ligne, HTTPS, 3 replicas anti-affinés |
+| 7 | Chart Helm de l'app, MySQL, repo GitOps app | 10 j/h | App en ligne, HTTPS, 2 replicas anti-affinés |
 | 8 | Bonnes pratiques, CronJob backup, rollout progressif, version fautive | 7,5 j/h | Démo de rollout sûr rejouable |
 | 9 | Documentation (§4) | 16 j/h | 7 documents livrés |
 | 10 | Bonus (§2.6) | 11 j/h | Optionnel |
@@ -299,7 +303,7 @@ déjà pratiqué Kubernetes.
 | GHCR + imagePullSecrets + push d'image | 3 |
 | ArgoCD + repo infra kustomize + App-of-Apps | 4 |
 | Headlamp + intégration OIDC | 2 |
-| kube-prometheus-stack + dashboards + règles d'alerte | 4 |
+| victoria-metrics-k8s-stack + dashboards + règles d'alerte | 4 |
 | Loki + Alloy + datasource Grafana | 2,5 |
 | Keycloak (déploiement, persistance, realm, groupes) | 4 |
 | **dex + câblage OIDC : apiserver, kubectl, ArgoCD, Grafana, Headlamp** | **6** |
