@@ -14,7 +14,10 @@ req="$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/../requirements.yml"
 if [[ -f $req ]]; then
   sudo -u ec2-user ansible-galaxy collection install -r "$req"
 else
-  sudo -u ec2-user ansible-galaxy collection install ansible.posix community.general ansible.utils
+  # Script lancé hors du dépôt (curl | bash) : même liste que requirements.yml,
+  # à garder identique. Sans kubernetes.core, les rôles Helm échouent.
+  sudo -u ec2-user ansible-galaxy collection install \
+    ansible.posix community.general ansible.utils kubernetes.core
 fi
 
 echo "==> k9s (arm64)"

@@ -113,9 +113,8 @@ génère la clé SSH `~/.ssh/id_ed25519`, fait quelques vérifications (arm64, p
 `/mnt/efs` monté, sortie Internet), puis **affiche la clé publique** et les commandes à
 coller sur les workers.
 
-> ⚠ Lancer le script **depuis le clone**, pas avec `curl … | sudo bash`. Sans le dépôt
-> à côté, il ne trouve pas `requirements.yml` et installe une liste de secours qui
-> **n'inclut pas `kubernetes.core`** : les rôles qui déploient par Helm échouent ensuite.
+> Lancer le script **depuis le clone** : il y lit `requirements.yml`. Lancé seul
+> (`curl … | sudo bash`), il installe une copie de cette liste, à tenir à jour à la main.
 
 **C4. Autoriser `node-1` sur chaque worker.** Ouvrir une session par worker, depuis le
 poste :
@@ -247,7 +246,7 @@ attend les trois nœuds `Ready` et liste les pods qui ne sont pas sains.
 | `start-session` échoue sur `TerminateSession` | `session-manager-plugin` absent du poste | `brew install --cask session-manager-plugin` |
 | `TargetNotConnected` | VMs arrêtées, ou agent SSM pas encore prêt | Partie B, attendre « Online » |
 | Ansible ne trouve pas la clé SSH ou les collections | Session restée en `ssm-user` | `sudo su - ec2-user` |
-| Les rôles Helm échouent : module `kubernetes.core` introuvable | `node1-setup.sh` lancé par `curl … \| sudo bash` | Le relancer depuis le clone (C3) |
+| Les rôles Helm échouent : module `kubernetes.core` introuvable | Ancienne version de `node1-setup.sh` lancée par `curl … \| sudo bash` : sa liste de secours oubliait la collection | Corrigé. Sinon : `ansible-galaxy collection install -r ~/kube-infra/ansible/requirements.yml` en `ec2-user` |
 | Playbook interrompu en plein milieu | Session SSM coupée hors `tmux` | Toujours travailler dans `tmux` (D1) |
 | `ls: cannot open directory '/mnt/efs/…': Permission denied` | Les répertoires EFS appartiennent aux UID des applications | `sudo ls` |
 | `reset.yml` : `rmtree failed … 'io.pressure'` | cgroup2 de Cilium encore monté | `git pull` (corrigé), sinon `sudo umount -l /run/cilium/cgroupv2` |
