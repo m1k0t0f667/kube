@@ -1,0 +1,223 @@
+---
+# Preuve du stockage persistant (KUB-34, KUB-35). Ne laisse rien derrière lui.
+#   ansible-playbook playbooks/storage-check.yml
+#
+# 1. Un pod sur node-2 écrit un jeton sur un volume EFS et sur un volume local-path.
+# 2. Le pod est supprimé.
+# 3. Un nouveau pod relit les deux fichiers : les données ont survécu au pod.
+# 4. Un pod sur node-3 relit le fichier EFS : le volume est partagé entre nœuds.
+# Tout est supprimé à la fin, y compris en cas d'échec.
+- name: Preuve de persistance
+  hosts: control_plane
+  become: true
+  gather_facts: false
+
+  vars:
+    ns: storage-check
+    check_dir: storage-check
+    writer_node: "{{ groups['workers'][0] }}"
+    other_node: "{{ groups['workers'][1] }}"
+    kubectl_env:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+
+  tasks:
+    # set_fact fige la valeur : une variable de play rejouerait le lookup,
+    # donc un jeton différent, à chaque usage.
+    - name: Tirer un jeton aléatoire
+      ansible.builtin.set_fact:
+        token: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_lowercase', 'digits'], length=12) }}"
+
+    - name: Test et nettoyage
+      block:
+        - name: Répertoire de test sur l'EFS
+          ansible.builtin.file:
+            path: "{{ efs_mount_point }}/{{ check_dir }}"
+            state: directory
+            mode: "0777"
+
+        - name: Volumes de test
+          ansible.builtin.copy:
+            dest: /tmp/storage-check.yaml
+            mode: "0644"
+            content: |
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: {{ ns }}
+              ---
+              apiVersion: v1
+              kind: PersistentVolume
+              metadata:
+                name: efs-storage-check
+              spec:
+                capacity: { storage: 1Gi }
+                accessModes: [ReadWriteMany]
+                persistentVolumeReclaimPolicy: Retain
+                storageClassName: efs-sc
+              {% if efs_csi_enabled | default(true) | bool %}
+                mountOptions: [tls]
+                csi:
+                  driver: efs.csi.aws.com
+                  volumeHandle: {{ efs_id }}:/{{ check_dir }}
+              {% else %}
+                hostPath:
+                  path: {{ efs_mount_point }}/{{ check_dir }}
+                  type: Directory
+              {% endif %}
+              ---
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: efs
+                namespace: {{ ns }}
+              spec:
+                storageClassName: efs-sc
+                volumeName: efs-storage-check
+                accessModes: [ReadWriteMany]
+                resources:
+                  requests: { storage: 1Gi }
+              ---
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: local
+                namespace: {{ ns }}
+              spec:
+                storageClassName: local-path
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests: { storage: 64Mi }
+
+        - name: Pods de test
+          ansible.builtin.copy:
+            dest: "/tmp/storage-check-{{ item.name }}.yaml"
+            mode: "0644"
+            content: |
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: {{ item.name }}
+                namespace: {{ ns }}
+              spec:
+                # nodeSelector et non nodeName : local-path attend que le
+                # scheduler choisisse le nœud pour y créer le volume.
+                nodeSelector:
+                  kubernetes.io/hostname: {{ item.node }}
+                containers:
+                  - name: main
+                    image: docker.io/library/busybox:1.37.0
+                    command: ["sh", "-c", {{ item.cmd | to_json }}]
+                    resources:
+                      requests: { cpu: 10m, memory: 16Mi }
+                      limits: { memory: 32Mi }
+                    volumeMounts:
+              {% for m in item.mounts %}
+                      - { name: {{ m }}, mountPath: /{{ m }} }
+              {% endfor %}
+                volumes:
+              {% for m in item.mounts %}
+                  - name: {{ m }}
+                    persistentVolumeClaim: { claimName: {{ m }} }
+              {% endfor %}
+          loop:
+            - name: ecrivain
+              node: "{{ writer_node }}"
+              mounts: [efs, local]
+              cmd: "echo {{ token }} > /efs/preuve.txt && echo {{ token }} > /local/preuve.txt && sleep 3600"
+            - name: lecteur
+              node: "{{ writer_node }}"     # local-path : le volume reste sur son nœud
+              mounts: [efs, local]
+              cmd: sleep 3600
+            - name: lecteur-autre-noeud
+              node: "{{ other_node }}"
+              mounts: [efs]
+              cmd: sleep 3600
+
+        - name: Créer les volumes
+          ansible.builtin.command: kubectl apply -f /tmp/storage-check.yaml
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        - name: Le PVC EFS est lié à son PV
+          ansible.builtin.command: >-
+            kubectl -n {{ ns }} wait --for=jsonpath={.status.phase}=Bound
+            pvc/efs --timeout=60s
+          environment: "{{ kubectl_env }}"
+          changed_when: false
+
+        - name: "1. L'écrivain démarre et écrit le jeton {{ token }}"
+          ansible.builtin.shell: >-
+            kubectl apply -f /tmp/storage-check-ecrivain.yaml &&
+            kubectl -n {{ ns }} wait --for=condition=Ready pod/ecrivain --timeout=180s
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        - name: "2. Suppression de l'écrivain"
+          ansible.builtin.command: kubectl -n {{ ns }} delete pod ecrivain --wait=true
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        - name: "3. et 4. Les lecteurs démarrent"
+          ansible.builtin.shell: >-
+            kubectl apply -f /tmp/storage-check-lecteur.yaml
+            -f /tmp/storage-check-lecteur-autre-noeud.yaml &&
+            kubectl -n {{ ns }} wait --for=condition=Ready
+            pod/lecteur pod/lecteur-autre-noeud --timeout=180s
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        - name: Relire les fichiers
+          ansible.builtin.command: kubectl -n {{ ns }} exec {{ item.pod }} -- cat /{{ item.vol }}/preuve.txt
+          environment: "{{ kubectl_env }}"
+          loop:
+            - { pod: lecteur, vol: efs }
+            - { pod: lecteur, vol: local }
+            - { pod: lecteur-autre-noeud, vol: efs }
+          register: reads
+          changed_when: false
+
+        - name: Les données ont survécu
+          ansible.builtin.assert:
+            that: item.stdout | trim == token
+            fail_msg: "{{ item.item.pod }} lit « {{ item.stdout }} » sur {{ item.item.vol }}, attendu {{ token }}"
+            success_msg: "{{ item.item.pod }} relit {{ token }} sur le volume {{ item.item.vol }}"
+          loop: "{{ reads.results }}"
+          loop_control:
+            label: "{{ item.item.pod }} / {{ item.item.vol }}"
+
+        - name: Où étaient les volumes
+          ansible.builtin.command: kubectl -n {{ ns }} get pvc,pod -o wide
+          environment: "{{ kubectl_env }}"
+          register: state
+          changed_when: false
+
+        - name: État
+          ansible.builtin.debug:
+            var: state.stdout_lines
+
+      always:
+        - name: Supprimer le namespace de test (pods, PVC, volume local-path)
+          ansible.builtin.command: kubectl delete namespace {{ ns }} --ignore-not-found --wait=true
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        # Retain : le PV EFS ne disparaît pas avec son PVC.
+        - name: Supprimer le PV EFS de test
+          ansible.builtin.command: kubectl delete pv efs-storage-check --ignore-not-found
+          environment: "{{ kubectl_env }}"
+          changed_when: true
+
+        - name: Supprimer le répertoire de test sur l'EFS
+          ansible.builtin.file:
+            path: "{{ efs_mount_point }}/{{ check_dir }}"
+            state: absent
+
+        - name: Supprimer les manifestes de test
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /tmp/storage-check.yaml
+            - /tmp/storage-check-ecrivain.yaml
+            - /tmp/storage-check-lecteur.yaml
+            - /tmp/storage-check-lecteur-autre-noeud.yaml

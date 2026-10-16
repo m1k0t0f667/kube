@@ -31,6 +31,7 @@ u=$(ssh_user node-1)
   echo "    ingress_domain: 127.0.0.1.sslip.io"
   echo "    acme_enabled: false"
   echo "    ingress_cluster_issuer: internal-ca"
+  echo "    efs_csi_enabled: false"
   echo "  children:"
   echo "    control_plane:"
   echo "      hosts:"

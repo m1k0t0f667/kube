@@ -38,3 +38,19 @@ control_plane_endpoint: "{{ hostvars[groups['control_plane'][0]].node_ip }}:6443
 # Stockage persistant. Monté par le userData via /etc/fstab, en NFS+TLS.
 efs_id: "fs-038bf0f49474a6a1d"
 efs_mount_point: "/mnt/efs"
+
+# Pilote EFS CSI et disque local (ADR-008). Chart 4.5.1 = pilote v3.5.1, arm64 vérifié.
+efs_csi_chart_version: "4.5.1"
+local_path_version: "v0.0.37"
+
+# PV EFS statiques, un par sous-répertoire créé par le rôle `efs`.
+# Provisioning dynamique impossible : elasticfilesystem:DescribeAccessPoints est
+# refusé au rôle des nœuds (testé le 2026-10-16), et le pilote en a besoin pour
+# créer un Access Point. Les tailles sont indicatives : EFS ne les applique pas,
+# le vrai plafond est de 20 Go pour tout le groupe.
+# Un PVC EFS désigne toujours son PV par `volumeName`, sinon il pourrait prendre
+# celui d'un autre composant.
+efs_static_volumes:
+  - { name: efs-mysql, dir: mysql, size: 5Gi }
+  - { name: efs-backups, dir: backups, size: 5Gi }
+  - { name: efs-keycloak-pg, dir: keycloak-pg, size: 1Gi }

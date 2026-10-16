@@ -36,6 +36,13 @@
   roles:
     - cni
 
+- name: Stockage persistant
+  hosts: control_plane
+  become: true
+  tags: [storage]
+  roles:
+    - storage
+
 - name: Point d'entrée HTTP/HTTPS
   hosts: control_plane
   become: true
