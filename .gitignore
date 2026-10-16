@@ -16,3 +16,6 @@ sample-app-master.zip
 # docker-compose.yaml livré contient APP_KEY et les mots de passe en clair
 # — README §1.5 : « à régénérer et à ne jamais recommiter ».
 sample-app-master/
+
+# Manuel d'équipe : document vivant tenu hors du dépôt, une copie figée serait vite fausse.
+Equipage-Kube*.pdf
