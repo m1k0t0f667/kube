@@ -71,6 +71,8 @@ ni SSH depuis Internet, ni port-forwarding SSM.
 | Namespace | Composant | Chart | Version | Exposition | Statut |
 |---|---|---|---|---|---|
 | `kube-system` | Cilium | `cilium/cilium` | 1.20.2 | — | en place |
+| `kube-system` | Pilote EFS CSI (plugin nœud seul) | `aws-efs-csi-driver/aws-efs-csi-driver` | 4.5.1 (pilote v3.5.1) | — | en place |
+| `local-path-storage` | local-path-provisioner | manifeste Rancher | v0.0.37 | — | en place |
 | `traefik` | Traefik | `traefik/traefik` | 41.6.0 (Traefik v3.7.13) | DaemonSet sur `node-1` | en place |
 | `cert-manager` | cert-manager | `jetstack/cert-manager` | v1.21.2 | — | en place |
 | `argocd` | ArgoCD | `argo/argo-cd` | 10.9.2 | `argocd.15.224.60.53.sslip.io` | en place |
@@ -120,14 +122,16 @@ Le passage au serveur Let's Encrypt de production se fait dans `acme_server` de
 | Données | Support | Emplacement | Statut |
 |---|---|---|---|
 | etcd | disque local de `node-1` | `/var/lib/etcd` | en place |
-| Base de données de l'app (MySQL) | EFS, PV statique | `/mnt/efs/mysql` (UID 1001) | répertoire en place |
-| Sauvegardes | EFS, PV statique | `/mnt/efs/backups` (UID 1001) | répertoire en place |
-| Base de Keycloak | EFS, PV statique | `/mnt/efs/keycloak-pg` (UID 1001) | répertoire en place |
-| Clé Sealed Secrets, kubeconfig de secours | EFS | `/mnt/efs/bootstrap` (root, 0700) | répertoire en place |
-| Métriques, logs | local-path | disque de chaque nœud | prévu |
+| Base de données de l'app (MySQL) | EFS, PV `efs-mysql` | `/mnt/efs/mysql` (UID 1001) | PV en place |
+| Sauvegardes | EFS, PV `efs-backups` | `/mnt/efs/backups` (UID 1001) | PV en place |
+| Base de Keycloak | EFS, PV `efs-keycloak-pg` | `/mnt/efs/keycloak-pg` (UID 1001) | PV en place |
+| Clé Sealed Secrets, kubeconfig de secours | EFS, sans PV (lu par Ansible) | `/mnt/efs/bootstrap` (root, 0700) | répertoire en place |
+| Métriques, logs | StorageClass `local-path` | `/opt/local-path-provisioner` sur chaque nœud | en place |
 
 EFS : `fs-038bf0f49474a6a1d`. Les répertoires sont créés et leurs droits posés par le
-rôle Ansible `efs`, qui remplace les Access Points que le compte ne peut pas créer.
+rôle Ansible `efs`, qui remplace les Access Points que le compte ne peut pas créer. Les PV
+et les StorageClasses sont posés par le rôle `storage`. Utilisation et preuve de
+persistance : [stockage.md](../stockage.md).
 
 MySQL sur EFS testé le 11/10/2026 (KUB-61) : démarrage, charge et persistance après
 suppression du pod OK. Détail dans [images-arm64.md](../images-arm64.md).
@@ -142,9 +146,10 @@ suppression du pod OK. Détail dans [images-arm64.md](../images-arm64.md).
 | 2. Control plane | `control-plane` | `node-1` | `control-plane` |
 | 3. Workers | `workers` | `node-2`, `node-3` | `worker` |
 | 4. Réseau | `cni` | `node-1` | `cni` (Cilium) |
-| 5. Entrée | `ingress` | `node-1` | `traefik` |
-| 6. PKI | `pki` | `node-1` | `cert-manager` |
-| 7. GitOps | `gitops` | `node-1` | `argocd` |
+| 5. Stockage | `storage` | `node-1` | `storage` (pilote EFS, local-path, PV EFS) |
+| 6. Entrée | `ingress` | `node-1` | `traefik` |
+| 7. PKI | `pki` | `node-1` | `cert-manager` |
+| 8. GitOps | `gitops` | `node-1` | `argocd` |
 
 Ensuite, ArgoCD prend le relais avec le pattern App-of-Apps (prévu). Teardown :
 `ansible-playbook reset.yml -e confirm=oui`, qui préserve `/mnt/efs`.
