@@ -1,9 +1,7 @@
 # Bootstrap — du poste de dev au control node
 
 > **Procédure de référence : [docs/runbook-provisioning.md](../../docs/runbook-provisioning.md).**
-> Ce fichier garde le contexte. Le runbook donne les commandes à jour, dont le clone
-> du dépôt **avant** `node1-setup.sh` : lancé par `curl … | sudo bash`, le script
-> n'installe pas la collection `kubernetes.core`.
+> Ce fichier garde le contexte, le runbook donne les commandes à jour.
 
 Ansible ne peut pas tourner depuis un poste de développement : le port 22 est fermé
 depuis Internet, le security group n'est pas modifiable et aucune key pair n'existe
