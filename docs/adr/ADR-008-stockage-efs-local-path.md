@@ -53,7 +53,10 @@ Replis, dans l'ordre, si le driver CSI refuse le montage statique : PV `hostPath
 - Les pods en `local-path` ne changent pas de nœud : un nœud perdu, ses métriques et ses
   logs sont perdus. Acceptable, ces données sont reconstructibles.
 - Le stockage partagé n'est **pas** de la redondance : MySQL reste mono-instance (ADR-009).
-- À faire : local-path-provisioner n'est pas encore déployé.
+- Mise en œuvre le 16/10/2026 (KUB-34) : rôle Ansible `storage`. Le montage statique par le
+  pilote CSI fonctionne, les replis ne sont pas nécessaires. `DescribeAccessPoints` est
+  refusé au rôle des nœuds (testé le même jour), ce qui confirme que le mode dynamique est
+  impossible. Preuve de persistance : [stockage.md](../stockage.md).
 
 ## En soutenance
 

@@ -351,6 +351,14 @@ comme rôle d'instance. Ce n'est pas bloquant : le montage EFS **ne passe pas pa
 `amazon-efs-utils` résout `fs-038bf0f49474a6a1d.efs.eu-west-3.amazonaws.com` par DNS et monte
 en NFS+TLS — ce que le `df` sur le nœud confirme. Seul le provisioning **dynamique**
 (`CreateAccessPoint`, `DescribeAccessPoints`) est perdu, et il était déjà écarté.
+Revérifié le 16/10/2026 depuis `node-1`, avec le rôle d'instance
+`kubequest2-group-07-ec2-role` :
+
+```
+$ aws efs describe-access-points --region eu-west-3 --file-system-id fs-038bf0f49474a6a1d
+An error occurred (AccessDeniedException) when calling the DescribeAccessPoints operation:
+... is not authorized to perform: elasticfilesystem:DescribeAccessPoints
+```
 
 Trois options, par ordre de préférence, à trancher au jour 1 :
 
@@ -469,7 +477,7 @@ Explicitement **écartés** : Terraform (§1 C3), runner GitHub auto-hébergé (
 
 | Priorité | Question ouverte | Comment trancher |
 |---|---|---|
-| 1 | Le driver EFS CSI monte-t-il un PV statique ? | **Partiellement résolu** : l'API EFS est refusée aux deux principals, mais le montage n'en dépend pas et fonctionne déjà via le `fstab`. Reste à confirmer côté driver — sinon, options 2 et 3 du §6 |
+| 1 | Le driver EFS CSI monte-t-il un PV statique ? | **Résolu le 16/10/2026** : oui, en TLS, depuis deux nœuds à la fois ([stockage.md](stockage.md)). Option 1 du §6 retenue |
 | 2 | Toutes les images existent-elles en arm64 ? | **Résolu le 11/10/2026** : oui, toutes ([images-arm64.md](images-arm64.md)) |
 | 3 | InnoDB tient-il sur EFS ? | **Résolu le 11/10/2026** : oui, démarrage, `mysqlslap` et persistance OK ([images-arm64.md](images-arm64.md)) |
 | 4 | Le budget RAM tient-il ? | `kubectl top nodes` après le déploiement de chaque composant lourd |

@@ -168,12 +168,12 @@ ansible-playbook site.yml
 ```
 
 `ansible.cfg` désigne déjà `inventory/hosts.yml` : pas besoin de `-i`. Étapes, dans
-l'ordre : socle des trois nœuds, control plane, workers, Cilium, Traefik, cert-manager,
+l'ordre : socle des trois nœuds, control plane, workers, Cilium, stockage (pilote EFS et local-path), Traefik, cert-manager,
 ArgoCD. Le playbook vérifie lui-même que le port 80, le NodePort 30080 et la redirection
 HTTPS répondent, puis affiche l'URL et le mot de passe d'ArgoCD.
 
 Pour rejouer une seule étape : `ansible-playbook site.yml --tags <tag>`, avec `socle`,
-`control-plane`, `workers`, `cni`, `ingress`, `pki` ou `gitops`.
+`control-plane`, `workers`, `cni`, `storage`, `ingress`, `pki` ou `gitops`.
 
 ---
 
@@ -184,7 +184,7 @@ Sur `node-1`, en `ec2-user` :
 ```bash
 kubectl get nodes                                    # 3 nœuds Ready
 kubectl get pods -A | grep -vE 'Running|Completed'   # seulement l'en-tête
-helm list -A                                         # cilium, traefik, cert-manager, argocd
+helm list -A                                         # cilium, aws-efs-csi-driver, traefik, cert-manager, argocd
 kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief   # OK
 curl -s -o /dev/null -w '%{http_code}\n' http://10.0.0.80:30080/    # 404 : NodePort
 kubectl -n argocd get certificate                    # READY True

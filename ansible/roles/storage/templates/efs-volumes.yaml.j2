@@ -1,0 +1,42 @@
+# StorageClass EFS et PV statiques — cf. ADR-008.
+#
+# Sans contrôleur EFS, `efs-sc` ne crée jamais de volume : elle sert d'étiquette
+# pour lier un PVC à l'un des PV ci-dessous. Un PVC sans PV correspondant reste
+# Pending, ce qui est voulu (pas de stockage EFS hors budget).
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+{% for v in efs_static_volumes %}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ v.name }}
+spec:
+  capacity:
+    storage: {{ v.size }}
+  volumeMode: Filesystem
+  accessModes: [ReadWriteMany]
+  # Retain : supprimer le PVC ne doit jamais effacer la base.
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+{% if efs_csi_enabled | default(true) | bool %}
+  # TLS comme le montage du fstab : les données ne circulent jamais en clair.
+  mountOptions: [tls]
+  csi:
+    driver: efs.csi.aws.com
+    # Sous-répertoire à la place d'un Access Point. Il existe déjà (rôle efs).
+    volumeHandle: {{ efs_id }}:/{{ v.dir }}
+{% else %}
+  # Banc local, sans vrai EFS : le pilote ne saurait pas monter l'export NFS
+  # de node-1. On passe par /mnt/efs, monté sur les trois nœuds.
+  hostPath:
+    path: {{ efs_mount_point }}/{{ v.dir }}
+    type: Directory
+{% endif %}
+{% endfor %}

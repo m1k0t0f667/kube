@@ -1,0 +1,84 @@
+---
+# Deux StorageClasses (ADR-008) : `efs-sc` pour ce qui doit survivre à la perte
+# d'un nœud, `local-path` pour ce qui écrit beaucoup et se reconstruit.
+# Joué sur le control-plane : les charts déploient eux-mêmes sur tous les nœuds.
+
+# Défini par le rôle control-plane, absent si l'on joue `--tags storage` seul.
+- name: Home de l'utilisateur
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+  when: user_home is not defined
+
+- name: Mémoriser le home
+  ansible.builtin.set_fact:
+    user_home: "{{ ansible_facts.getent_passwd[ansible_user][4] }}"
+  when: user_home is not defined
+
+# Pilote EFS : seul le plugin nœud sert au montage statique. Le contrôleur ne
+# sert qu'au provisioning dynamique, impossible ici (cf. efs_static_volumes),
+# et coûterait deux pods pour rien.
+- name: Dépôt Helm aws-efs-csi-driver
+  kubernetes.core.helm_repository:
+    name: aws-efs-csi-driver
+    repo_url: https://kubernetes-sigs.github.io/aws-efs-csi-driver
+  when: efs_csi_enabled | default(true) | bool
+
+- name: Déployer le pilote EFS CSI
+  kubernetes.core.helm:
+    name: aws-efs-csi-driver
+    chart_ref: aws-efs-csi-driver/aws-efs-csi-driver
+    chart_version: "{{ efs_csi_chart_version }}"
+    release_namespace: kube-system
+    values:
+      controller:
+        create: false
+      node:
+        resources:
+          requests: { cpu: 10m, memory: 64Mi }
+    kubeconfig: "{{ user_home }}/.kube/config"
+    wait: true
+    wait_timeout: 10m
+  when: efs_csi_enabled | default(true) | bool
+
+- name: Manifeste local-path-provisioner
+  ansible.builtin.template:
+    src: local-path-storage.yaml.j2
+    dest: /etc/kubernetes/local-path-storage.yaml
+    mode: "0644"
+
+- name: Manifeste des volumes EFS
+  ansible.builtin.template:
+    src: efs-volumes.yaml.j2
+    dest: /etc/kubernetes/efs-volumes.yaml
+    mode: "0644"
+
+- name: Appliquer les manifestes de stockage
+  ansible.builtin.command: kubectl apply -f {{ item }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  loop:
+    - /etc/kubernetes/local-path-storage.yaml
+    - /etc/kubernetes/efs-volumes.yaml
+  register: applied
+  changed_when: "'configured' in applied.stdout or 'created' in applied.stdout"
+
+- name: local-path-provisioner démarré
+  ansible.builtin.command: >-
+    kubectl -n local-path-storage rollout status
+    deployment/local-path-provisioner --timeout=180s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Les PV EFS sont disponibles
+  ansible.builtin.command: >-
+    kubectl get pv {{ efs_static_volumes | map(attribute='name') | join(' ') }}
+    -o custom-columns=NAME:.metadata.name,STATUS:.status.phase --no-headers
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: pvs
+  changed_when: false
+  failed_when: >-
+    pvs.rc != 0 or
+    (pvs.stdout_lines | reject('search', 'Available|Bound') | list | length) > 0
